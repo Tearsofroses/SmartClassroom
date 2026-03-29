@@ -2,23 +2,58 @@ import axios, { AxiosError } from 'axios'
 import type {
   BuildingOverview,
   DeviceCreatePayload,
+  DeviceTypeItem,
   FloorSummary,
   Incident,
   IncidentReviewPayload,
   LatestFrameResponse,
   DeviceUpdatePayload,
   RoomDeviceInventoryResponse,
+  RoomThresholdConfigItem,
   RoomDeviceStatusAll,
   RoomSummary,
   SessionAnalytics,
   SessionSummary,
   DeviceTogglePayload,
+  ThresholdConfigItem,
+  ThresholdUpdatePayload,
 } from '../types'
 
-const api = axios.create({
+export const api = axios.create({
   baseURL: '/api',
   timeout: 12000,
 })
+
+let requestInterceptorId: number | null = null
+let responseInterceptorId: number | null = null
+
+export function setupApiInterceptors(getToken: () => string | null, onUnauthorized: () => void): void {
+  if (requestInterceptorId !== null) {
+    api.interceptors.request.eject(requestInterceptorId)
+  }
+
+  if (responseInterceptorId !== null) {
+    api.interceptors.response.eject(responseInterceptorId)
+  }
+
+  requestInterceptorId = api.interceptors.request.use((config) => {
+    const token = getToken()
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    return config
+  })
+
+  responseInterceptorId = api.interceptors.response.use(
+    (response) => response,
+    (error: AxiosError) => {
+      if (error.response?.status === 401) {
+        onUnauthorized()
+      }
+      return Promise.reject(error)
+    },
+  )
+}
 
 function normalizeApiError(error: unknown): string {
   if (error instanceof AxiosError) {
@@ -119,4 +154,31 @@ export async function changeSessionMode(sessionId: string, mode: 'NORMAL' | 'TES
 
 export async function endSession(sessionId: string): Promise<void> {
   await api.post(`/sessions/${sessionId}/end`, {})
+}
+
+export async function getDeviceTypes(): Promise<DeviceTypeItem[]> {
+  const { data } = await api.get<DeviceTypeItem[]>('/device-types')
+  return data
+}
+
+export async function getGlobalThresholds(): Promise<ThresholdConfigItem[]> {
+  const { data } = await api.get<ThresholdConfigItem[]>('/thresholds/global')
+  return data
+}
+
+export async function updateGlobalThreshold(deviceTypeCode: string, payload: ThresholdUpdatePayload): Promise<void> {
+  await api.put(`/thresholds/global/${deviceTypeCode}`, payload)
+}
+
+export async function getRoomThresholds(roomId: string): Promise<RoomThresholdConfigItem[]> {
+  const { data } = await api.get<RoomThresholdConfigItem[]>(`/rooms/${roomId}/thresholds`)
+  return data
+}
+
+export async function updateRoomThreshold(
+  roomId: string,
+  deviceTypeCode: string,
+  payload: ThresholdUpdatePayload,
+): Promise<void> {
+  await api.put(`/rooms/${roomId}/thresholds/${deviceTypeCode}`, payload)
 }

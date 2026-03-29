@@ -6,13 +6,14 @@ from datetime import datetime
 import base64
 
 from app.database import get_db
-from app.models import ClassSession, Room, Teacher, Subject, BehaviorLog, RiskIncident, PerformanceAggregate
+from app.models import ClassSession, Room, Teacher, Subject, BehaviorLog, RiskIncident, PerformanceAggregate, User
 from app.schemas.common import (
     SessionCreate, SessionResponse, SessionModeChange, 
     BehaviorIngest, SessionAnalyticsResponse,
     LearningModeIngest, TestingModeIngest,
     LearningModeResponse, TestingModeResponse
 )
+from app.routers.auth import get_current_user, get_user_room_scope, get_user_permissions, check_mode_access
 from app.services.grading_engine import PerformanceScorer, RiskDetector
 from app.services.yolo_inference import YOLOInferenceService
 
@@ -21,6 +22,44 @@ router = APIRouter(prefix="/api", tags=["Sessions & AI"])
 # Initialize AI services (YOLO only, RiskDetector created per-request)
 yolo_service = YOLOInferenceService()
 
+
+def _ensure_session_role(current_user: User, allowed_roles: set[str]) -> None:
+    if current_user.role not in allowed_roles:
+        raise HTTPException(status_code=403, detail="Insufficient role for this session action")
+
+
+def _ensure_room_scope(current_user: User, room_id: UUID, db: Session) -> None:
+    if current_user.role == "SYSTEM_ADMIN":
+        return
+
+    if current_user.role in {"LECTURER", "EXAM_PROCTOR"}:
+        allowed_rooms = set(get_user_room_scope(current_user, db))
+        if room_id not in allowed_rooms:
+            raise HTTPException(status_code=403, detail="User not assigned to this room")
+
+
+def _ensure_session_permissions(
+    current_user: User,
+    db: Session,
+    required_permissions: set[str],
+    require_all: bool = False,
+) -> None:
+    user_permissions = get_user_permissions(current_user, db)
+    if require_all:
+        missing_permissions = [perm for perm in required_permissions if perm not in user_permissions]
+        if missing_permissions:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Missing required permissions: {','.join(missing_permissions)}",
+            )
+        return
+
+    if required_permissions.isdisjoint(user_permissions):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Insufficient permissions. Requires one of: {','.join(sorted(required_permissions))}",
+        )
+
 # =============================================================================
 # SESSION MANAGEMENT
 # =============================================================================
@@ -28,13 +67,18 @@ yolo_service = YOLOInferenceService()
 @router.post("/sessions", response_model=SessionResponse, status_code=201)
 async def create_session(
     session: SessionCreate,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Start a new class session (NORMAL or TESTING mode)"""
+    _ensure_session_role(current_user, {"LECTURER", "EXAM_PROCTOR", "SYSTEM_ADMIN"})
+    _ensure_session_permissions(current_user, db, {"mode:switch_learning", "mode:switch_testing"})
+
     # Validate room, teacher, subject exist
     room = db.query(Room).filter(Room.id == session.room_id).first()
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
+    _ensure_room_scope(current_user, room.id, db)
     
     teacher = db.query(Teacher).filter(Teacher.id == session.teacher_id).first()
     if not teacher:
@@ -68,10 +112,21 @@ async def list_sessions(
     status_filter: Optional[str] = None,
     mode: Optional[str] = None,
     room_id: Optional[UUID] = None,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """List sessions for dashboard views with optional filters."""
+    _ensure_session_permissions(
+        current_user,
+        db,
+        {"dashboard:view_classroom", "dashboard:view_block", "dashboard:view_university", "dashboard:view_minimal"},
+    )
+
     query = db.query(ClassSession)
+
+    if current_user.role in {"LECTURER", "EXAM_PROCTOR"}:
+        allowed_rooms = get_user_room_scope(current_user, db)
+        query = query.filter(ClassSession.room_id.in_(allowed_rooms if allowed_rooms else [UUID("00000000-0000-0000-0000-000000000000")]))
 
     if status_filter:
         query = query.filter(ClassSession.status == status_filter.upper())
@@ -110,30 +165,49 @@ async def list_sessions(
 @router.get("/sessions/{session_id}", response_model=SessionResponse)
 async def get_session(
     session_id: UUID,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get session details"""
+    _ensure_session_permissions(
+        current_user,
+        db,
+        {"dashboard:view_classroom", "dashboard:view_block", "dashboard:view_university"},
+    )
+
     session = db.query(ClassSession).filter(ClassSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+    _ensure_room_scope(current_user, session.room_id, db)
     return session
 
 @router.put("/sessions/{session_id}/mode")
 async def change_session_mode(
     session_id: UUID,
     mode_change: SessionModeChange,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Switch session between NORMAL and TESTING mode"""
+    _ensure_session_role(current_user, {"EXAM_PROCTOR", "SYSTEM_ADMIN"})
+
     session = db.query(ClassSession).filter(ClassSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+    _ensure_room_scope(current_user, session.room_id, db)
     
     if session.status != "ACTIVE":
         raise HTTPException(status_code=400, detail="Can only change mode of active sessions")
     
     if mode_change.mode.upper() not in ["NORMAL", "TESTING"]:
         raise HTTPException(status_code=400, detail="Mode must be NORMAL or TESTING")
+
+    target_mode = "LEARNING" if mode_change.mode.upper() == "NORMAL" else "TESTING"
+    required_mode_permission = "mode:switch_learning" if target_mode == "LEARNING" else "mode:switch_testing"
+    _ensure_session_permissions(current_user, db, {required_mode_permission})
+
+    if not check_mode_access(current_user, target_mode, db):
+        raise HTTPException(status_code=403, detail=f"Role {current_user.role} cannot switch to {target_mode}")
     
     session.mode = mode_change.mode.upper()
     db.commit()
@@ -153,6 +227,7 @@ async def change_session_mode(
 async def ingest_learning_mode(
     session_id: UUID,
     behavior: LearningModeIngest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -166,11 +241,26 @@ async def ingest_learning_mode(
     session = db.query(ClassSession).filter(ClassSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+    _ensure_session_role(current_user, {"LECTURER", "SYSTEM_ADMIN"})
+    _ensure_room_scope(current_user, session.room_id, db)
     
     if session.status != "ACTIVE":
         raise HTTPException(status_code=400, detail="Session is not active")
+
+    if session.mode != "NORMAL":
+        raise HTTPException(status_code=400, detail="Session must be in NORMAL mode")
+
+    _ensure_session_permissions(
+        current_user,
+        db,
+        {"mode:switch_learning", "ai_alerts:view"},
+        require_all=True,
+    )
     
     try:
+        if not yolo_service.is_ready():
+            raise HTTPException(status_code=503, detail="YOLO model not loaded")
+
         # Run YOLO inference on image
         frame_result = yolo_service.process_frame(
             behavior.image_base64,
@@ -178,9 +268,6 @@ async def ingest_learning_mode(
             student_id=behavior.student_id,
             mode="LEARNING",
         )
-        
-        if not yolo_service.is_ready():
-            raise HTTPException(status_code=503, detail="YOLO model not loaded")
         
         # Store detections as behavior logs
         detections = frame_result["detections"]
@@ -255,6 +342,7 @@ async def ingest_learning_mode(
 async def ingest_testing_mode(
     session_id: UUID,
     behavior: TestingModeIngest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -270,12 +358,24 @@ async def ingest_testing_mode(
     session = db.query(ClassSession).filter(ClassSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+    _ensure_session_role(current_user, {"EXAM_PROCTOR", "SYSTEM_ADMIN"})
+    _ensure_room_scope(current_user, session.room_id, db)
+
+    if not check_mode_access(current_user, "TESTING", db):
+        raise HTTPException(status_code=403, detail=f"Role {current_user.role} cannot operate TESTING mode")
     
     if session.status != "ACTIVE":
         raise HTTPException(status_code=400, detail="Session is not active")
     
     if session.mode != "TESTING":
         raise HTTPException(status_code=400, detail="Session must be in TESTING mode")
+
+    _ensure_session_permissions(
+        current_user,
+        db,
+        {"mode:switch_testing", "ai_alerts:view"},
+        require_all=True,
+    )
     
     try:
         if not yolo_service.is_ready():
@@ -352,6 +452,7 @@ async def ingest_testing_mode(
 async def ingest_behavior(
     session_id: UUID,
     behavior: BehaviorIngest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -361,9 +462,13 @@ async def ingest_behavior(
     session = db.query(ClassSession).filter(ClassSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+    _ensure_session_role(current_user, {"LECTURER", "EXAM_PROCTOR", "SYSTEM_ADMIN"})
+    _ensure_room_scope(current_user, session.room_id, db)
     
     if session.status != "ACTIVE":
         raise HTTPException(status_code=400, detail="Session is not active")
+
+    _ensure_session_permissions(current_user, db, {"ai_alerts:view"})
     
     # Create behavior log entry
     log = BehaviorLog(
@@ -393,12 +498,20 @@ async def ingest_behavior(
 @router.get("/sessions/{session_id}/analytics", response_model=SessionAnalyticsResponse)
 async def get_session_analytics(
     session_id: UUID,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get live analytics dashboard for a session"""
+    _ensure_session_permissions(
+        current_user,
+        db,
+        {"report:performance", "dashboard:view_classroom", "dashboard:view_block", "dashboard:view_university"},
+    )
+
     session = db.query(ClassSession).filter(ClassSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+    _ensure_room_scope(current_user, session.room_id, db)
     
     # Calculate elapsed time
     elapsed_seconds = (datetime.utcnow() - session.start_time).total_seconds()
@@ -444,12 +557,16 @@ async def get_session_analytics(
 @router.get("/sessions/{session_id}/latest-frame")
 async def get_latest_session_frame(
     session_id: UUID,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Return latest frame for dashboard preview (live behavior first, incident fallback)."""
+    _ensure_session_permissions(current_user, db, {"camera:view_live", "camera:view_recorded"})
+
     session = db.query(ClassSession).filter(ClassSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+    _ensure_room_scope(current_user, session.room_id, db)
 
     latest_behavior = (
         db.query(BehaviorLog)
@@ -516,12 +633,17 @@ async def get_latest_session_frame(
 @router.post("/sessions/{session_id}/end")
 async def end_session(
     session_id: UUID,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """End session and calculate final scores"""
+    _ensure_session_role(current_user, {"LECTURER", "EXAM_PROCTOR", "SYSTEM_ADMIN"})
+    _ensure_session_permissions(current_user, db, {"mode:switch_learning", "mode:switch_testing"})
+
     session = db.query(ClassSession).filter(ClassSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+    _ensure_room_scope(current_user, session.room_id, db)
     
     if session.status != "ACTIVE":
         raise HTTPException(status_code=400, detail="Session is not active")
@@ -567,102 +689,17 @@ async def end_session(
 @router.get("/rooms/{room_id}/sessions/active")
 async def get_active_sessions(
     room_id: UUID,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get all active sessions in a room"""
-    sessions = db.query(ClassSession).filter(
-        ClassSession.room_id == room_id,
-        ClassSession.status == "ACTIVE"
-    ).all()
-    
-    return {
-        "room_id": room_id,
-        "active_sessions": len(sessions),
-        "sessions": [
-            {
-                "session_id": s.id,
-                "teacher_id": s.teacher_id,
-                "mode": s.mode,
-                "start_time": s.start_time
-            }
-            for s in sessions
-        ]
-    }
-    
-    # Get behavior logs
-    behaviors = db.query(BehaviorLog).filter(BehaviorLog.session_id == session_id).all()
-    
-    # Count behaviors by actor
-    student_behaviors = {}
-    teacher_behaviors = {}
-    
-    for log in behaviors:
-        if log.actor_type == "STUDENT":
-            if log.actor_id not in student_behaviors:
-                student_behaviors[log.actor_id] = {}
-            if log.behavior_class not in student_behaviors[log.actor_id]:
-                student_behaviors[log.actor_id][log.behavior_class] = 0
-            student_behaviors[log.actor_id][log.behavior_class] += log.count
-        else:
-            if log.behavior_class not in teacher_behaviors:
-                teacher_behaviors[log.behavior_class] = 0
-            teacher_behaviors[log.behavior_class] += log.count
-    
-    # Count risk incidents (if TESTING mode)
-    risk_count = 0
-    if session.mode == "TESTING":
-        risk_count = db.query(RiskIncident).filter(
-            RiskIncident.session_id == session_id
-        ).count()
-    
-    return SessionAnalyticsResponse(
-        session_id=session_id,
-        mode=session.mode,
-        status=session.status,
-        start_time=session.start_time,
-        elapsed_minutes=elapsed_minutes,
-        student_performance=student_behaviors,
-        teacher_performance=teacher_behaviors,
-        risk_alerts_count=risk_count
+    _ensure_session_permissions(
+        current_user,
+        db,
+        {"dashboard:view_classroom", "dashboard:view_block", "dashboard:view_university", "dashboard:view_minimal"},
     )
+    _ensure_room_scope(current_user, room_id, db)
 
-@router.post("/sessions/{session_id}/end")
-async def end_session(
-    session_id: UUID,
-    db: Session = Depends(get_db)
-):
-    """End session and calculate final scores"""
-    session = db.query(ClassSession).filter(ClassSession.id == session_id).first()
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
-    if session.status != "ACTIVE":
-        raise HTTPException(status_code=400, detail="Session is not active")
-    
-    # Mark as completed
-    session.status = "COMPLETED"
-    session.end_time = datetime.utcnow()
-    
-    # Calculate final performance scores (Phase 3)
-    # For now, just mark as completed
-    
-    db.commit()
-    db.refresh(session)
-    
-    return {
-        "message": "Session ended",
-        "session_id": session_id,
-        "end_time": session.end_time,
-        "status": session.status,
-        "duration_minutes": int((session.end_time - session.start_time).total_seconds() / 60)
-    }
-
-@router.get("/rooms/{room_id}/sessions/active")
-async def get_active_sessions(
-    room_id: UUID,
-    db: Session = Depends(get_db)
-):
-    """Get all active sessions in a room"""
     sessions = db.query(ClassSession).filter(
         ClassSession.room_id == room_id,
         ClassSession.status == "ACTIVE"

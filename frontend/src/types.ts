@@ -1,6 +1,26 @@
 export type SessionMode = 'NORMAL' | 'TESTING'
 export type SessionStatus = 'ACTIVE' | 'COMPLETED' | 'CANCELLED'
 
+export interface AuthLoginRequest {
+  username: string
+  password: string
+}
+
+export interface AuthUser {
+  id: string
+  username: string
+  email: string | null
+  role: string
+  is_active: boolean
+  created_at: string
+}
+
+export interface AuthTokenResponse {
+  access_token: string
+  token_type: string
+  user: AuthUser
+}
+
 export interface BuildingOverview {
   id: string
   name: string
@@ -124,4 +144,34 @@ export interface IncidentReviewPayload {
 export interface DeviceTogglePayload {
   action: 'ON' | 'OFF'
   duration_minutes?: number
+}
+
+export interface DeviceTypeItem {
+  code: string
+  display_name: string
+  unit?: string | null
+  default_min?: number | null
+  default_max?: number | null
+  default_target?: number | null
+  is_active: boolean
+}
+
+export interface ThresholdConfigItem {
+  device_type_code: string
+  min_value?: number | null
+  max_value?: number | null
+  target_value?: number | null
+  enabled: boolean
+}
+
+export interface RoomThresholdConfigItem extends ThresholdConfigItem {
+  room_id: string
+  is_override: boolean
+}
+
+export interface ThresholdUpdatePayload {
+  min_value?: number | null
+  max_value?: number | null
+  target_value?: number | null
+  enabled?: boolean
 }

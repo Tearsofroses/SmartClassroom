@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { ChevronLeft, Clock3, ShieldAlert } from 'lucide-react'
 import { getIncidents, getLatestSessionFrame, getSessionAnalytics, getSessions } from '../services/api'
 import type { Incident, SessionAnalytics, SessionSummary } from '../types'
 import { timeAgo, toLocalDateTime } from '../utils/time'
+import { usePermissions } from '../hooks/usePermissions'
+import { PERMISSIONS } from '../constants/permissions'
 
 function ensureDataUri(value: string): string {
   if (value.startsWith('data:image')) return value
@@ -12,6 +14,17 @@ function ensureDataUri(value: string): string {
 
 export function SessionDetailPage(): JSX.Element {
   const { sessionId } = useParams<{ sessionId: string }>()
+  const navigate = useNavigate()
+  const { has, hasAny } = usePermissions()
+
+  const canViewIncidents = has(PERMISSIONS.INCIDENT_VIEW)
+  const canViewFrame = hasAny([PERMISSIONS.CAMERA_VIEW_LIVE, PERMISSIONS.CAMERA_VIEW_RECORDED])
+  const canViewAnalytics = hasAny([
+    PERMISSIONS.REPORT_PERFORMANCE,
+    PERMISSIONS.DASHBOARD_VIEW_CLASSROOM,
+    PERMISSIONS.DASHBOARD_VIEW_BLOCK,
+    PERMISSIONS.DASHBOARD_VIEW_UNIVERSITY,
+  ])
 
   const [session, setSession] = useState<SessionSummary | null>(null)
   const [analytics, setAnalytics] = useState<SessionAnalytics | null>(null)
@@ -28,9 +41,11 @@ export function SessionDetailPage(): JSX.Element {
       try {
         const [allSessions, analyticsData, incidentsData, frameData] = await Promise.all([
           getSessions(),
-          getSessionAnalytics(sessionId),
-          getIncidents({ session_id: sessionId }),
-          getLatestSessionFrame(sessionId),
+          canViewAnalytics ? getSessionAnalytics(sessionId) : Promise.resolve(null),
+          canViewIncidents ? getIncidents({ session_id: sessionId }) : Promise.resolve([]),
+          canViewFrame
+            ? getLatestSessionFrame(sessionId)
+            : Promise.resolve({ source: 'none', image_base64: null, captured_at: null }),
         ])
 
         if (!isMounted) return
@@ -50,7 +65,7 @@ export function SessionDetailPage(): JSX.Element {
     return () => {
       isMounted = false
     }
-  }, [sessionId])
+  }, [canViewAnalytics, canViewFrame, canViewIncidents, sessionId])
 
   const studentRows = useMemo(
     () => Object.entries(analytics?.student_performance ?? {}),
@@ -68,9 +83,13 @@ export function SessionDetailPage(): JSX.Element {
   return (
     <main className="page campus-bg">
       <section className="panel">
-        <Link to="/" className="inline-link">
-          <ChevronLeft size={16} /> Back to Buildings
-        </Link>
+        <button
+          type="button"
+          className="inline-link inline-link-button"
+          onClick={() => navigate(-1)}
+        >
+          <ChevronLeft size={16} /> Back
+        </button>
 
         <h1>Session Detail</h1>
         <p className="muted">Session ID: {sessionId}</p>
@@ -98,46 +117,58 @@ export function SessionDetailPage(): JSX.Element {
       <section className="content-grid-two">
         <article className="panel">
           <h2>Latest Annotated Frame</h2>
-          {frameSrc ? <img className="frame-preview" src={frameSrc} alt="Latest frame" /> : <p>No frame available yet.</p>}
+          {canViewFrame ? (
+            frameSrc ? <img className="frame-preview" src={frameSrc} alt="Latest frame" /> : <p>No frame available yet.</p>
+          ) : (
+            <p className="muted">You do not have permission to view session frames.</p>
+          )}
         </article>
 
         <article className="panel">
           <h2>Incidents Timeline</h2>
-          <div className="incident-list">
-            {incidents.map((incident) => (
-              <div key={incident.id} className="incident-item">
-                <header>
-                  <strong>{incident.risk_level}</strong>
-                  <span>{timeAgo(incident.flagged_at)}</span>
-                </header>
-                <p>Score: {incident.risk_score.toFixed(2)}</p>
-                <p>Student: {incident.student_id.slice(0, 8)}</p>
-              </div>
-            ))}
-          </div>
+          {canViewIncidents ? (
+            <div className="incident-list">
+              {incidents.map((incident) => (
+                <div key={incident.id} className="incident-item">
+                  <header>
+                    <strong>{incident.risk_level}</strong>
+                    <span>{timeAgo(incident.flagged_at)}</span>
+                  </header>
+                  <p>Score: {incident.risk_score.toFixed(2)}</p>
+                  <p>Student: {incident.student_id.slice(0, 8)}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="muted">You do not have permission to view incidents.</p>
+          )}
         </article>
       </section>
 
       <section className="panel">
         <h2>Student Behavior Breakdown</h2>
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Student</th>
-                <th>Behaviors</th>
-              </tr>
-            </thead>
-            <tbody>
-              {studentRows.map(([studentId, behaviorMap]) => (
-                <tr key={studentId}>
-                  <td>{studentId.slice(0, 8)}</td>
-                  <td>{Object.entries(behaviorMap).map(([name, count]) => `${name}:${count}`).join(', ') || '-'}</td>
+        {canViewAnalytics ? (
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Student</th>
+                  <th>Behaviors</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {studentRows.map(([studentId, behaviorMap]) => (
+                  <tr key={studentId}>
+                    <td>{studentId.slice(0, 8)}</td>
+                    <td>{Object.entries(behaviorMap).map(([name, count]) => `${name}:${count}`).join(', ') || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="muted">You do not have permission to view session analytics.</p>
+        )}
       </section>
     </main>
   )

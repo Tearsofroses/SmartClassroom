@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Float, DateTime, Boolean, UUID, ForeignKey, Enum, JSON, LargeBinary
+from sqlalchemy import Column, String, Integer, Float, DateTime, Boolean, UUID, ForeignKey, Enum, JSON, LargeBinary, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
@@ -49,6 +49,8 @@ class Room(Base):
     floor = relationship("Floor", back_populates="rooms")
     sessions = relationship("ClassSession", back_populates="room")
     device_states = relationship("DeviceState", back_populates="room")
+    room_devices = relationship("RoomDevice", back_populates="room", cascade="all, delete-orphan")
+    device_thresholds = relationship("RoomDeviceThreshold", back_populates="room", cascade="all, delete-orphan")
     occupancy = relationship("RoomOccupancy", back_populates="room", uselist=False, cascade="all, delete-orphan")
 
 class Subject(Base):
@@ -242,7 +244,7 @@ class DeviceState(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     room_id = Column(UUID(as_uuid=True), ForeignKey("rooms.id"), nullable=False, index=True)
     device_id = Column(String, nullable=False)
-    device_type = Column(String, nullable=False)  # LIGHT, FAN, AC, PROJECTOR
+    device_type = Column(String, nullable=False)  # LIGHT, FAN, AC, CAMERA
     status = Column(String, default="OFF")  # ON, OFF, ERROR
     last_toggled_by = Column(UUID(as_uuid=True), ForeignKey("teachers.id"))
     manual_override = Column(Boolean, default=False)
@@ -251,6 +253,69 @@ class DeviceState(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     
     room = relationship("Room", back_populates="device_states")
+
+class RoomDevice(Base):
+    __tablename__ = "room_devices"
+    __table_args__ = (UniqueConstraint("room_id", "device_id", name="uq_room_devices_room_device"),)
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    room_id = Column(UUID(as_uuid=True), ForeignKey("rooms.id"), nullable=False, index=True)
+    device_id = Column(String, nullable=False)
+    device_type = Column(String, nullable=False)
+    location_front_back = Column(String, nullable=False)
+    location_left_right = Column(String, nullable=False)
+    x_percent = Column(Float)
+    y_percent = Column(Float)
+    power_consumption_watts = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    source = Column(String, default="MANUAL")
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    room = relationship("Room", back_populates="room_devices")
+
+class DeviceType(Base):
+    __tablename__ = "device_types"
+
+    code = Column(String, primary_key=True)
+    display_name = Column(String, nullable=False)
+    unit = Column(String)
+    default_min = Column(Float)
+    default_max = Column(Float)
+    default_target = Column(Float)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+class DeviceThresholdProfile(Base):
+    __tablename__ = "device_threshold_profiles"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    device_type_code = Column(String, ForeignKey("device_types.code"), nullable=False, unique=True, index=True)
+    min_value = Column(Float)
+    max_value = Column(Float)
+    target_value = Column(Float)
+    enabled = Column(Boolean, default=True)
+    updated_by = Column(UUID(as_uuid=True))
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+class RoomDeviceThreshold(Base):
+    __tablename__ = "room_device_thresholds"
+    __table_args__ = (UniqueConstraint("room_id", "device_type_code", name="uq_room_threshold_room_type"),)
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    room_id = Column(UUID(as_uuid=True), ForeignKey("rooms.id"), nullable=False, index=True)
+    device_type_code = Column(String, ForeignKey("device_types.code"), nullable=False, index=True)
+    min_value = Column(Float)
+    max_value = Column(Float)
+    target_value = Column(Float)
+    enabled = Column(Boolean, default=True)
+    updated_by = Column(UUID(as_uuid=True))
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    room = relationship("Room", back_populates="device_thresholds")
 
 class RoomOccupancy(Base):
     __tablename__ = "room_occupancy"
@@ -317,3 +382,77 @@ class AuditLog(Base):
     performed_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     changes = Column(JSON)
     created_at = Column(DateTime, server_default=func.now(), index=True)
+
+# =============================================================================
+# 7B. RBAC POLICY MODELS
+# =============================================================================
+
+class Permission(Base):
+    __tablename__ = "permissions"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    key = Column(String, unique=True, nullable=False, index=True)
+    display_name = Column(String)
+    description = Column(String)
+    category = Column(String)  # camera, ai_alerts, env_control, dashboard_scope, mode_controls, incident_review, reporting, deployment
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    role_permissions = relationship("RolePermission", back_populates="permission", cascade="all, delete-orphan")
+
+class RolePermission(Base):
+    __tablename__ = "role_permissions"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    role = Column(String, nullable=False, index=True)
+    permission_id = Column(UUID(as_uuid=True), ForeignKey("permissions.id"), nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    
+    permission = relationship("Permission", back_populates="role_permissions")
+    __table_args__ = (UniqueConstraint('role', 'permission_id', name='uq_role_permission'),)
+
+class UserRoomAssignment(Base):
+    __tablename__ = "user_room_assignments"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    room_id = Column(UUID(as_uuid=True), ForeignKey("rooms.id"), nullable=False, index=True)
+    can_view = Column(Boolean, default=True)
+    can_control = Column(Boolean, default=False)
+    assigned_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    user = relationship("User", foreign_keys=[user_id])
+    room = relationship("Room")
+    assigned_by_user = relationship("User", foreign_keys=[assigned_by])
+    __table_args__ = (UniqueConstraint('user_id', 'room_id', name='uq_user_room'),)
+
+class UserBlockAssignment(Base):
+    __tablename__ = "user_block_assignments"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    floor_id = Column(UUID(as_uuid=True), ForeignKey("floors.id"), nullable=False, index=True)
+    can_view = Column(Boolean, default=True)
+    can_control = Column(Boolean, default=False)
+    assigned_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    user = relationship("User", foreign_keys=[user_id])
+    floor = relationship("Floor")
+    assigned_by_user = relationship("User", foreign_keys=[assigned_by])
+    __table_args__ = (UniqueConstraint('user_id', 'floor_id', name='uq_user_floor'),)
+
+class RoleModeAccess(Base):
+    __tablename__ = "role_mode_access"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    role = Column(String, unique=True, nullable=False, index=True)
+    can_switch_to_testing = Column(Boolean, default=False)
+    can_switch_to_learning = Column(Boolean, default=False)
+    can_view_reports = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

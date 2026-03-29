@@ -224,6 +224,40 @@ class DeviceStateResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class DeviceTypeResponse(BaseModel):
+    code: str
+    display_name: str
+    unit: Optional[str] = None
+    default_min: Optional[float] = None
+    default_max: Optional[float] = None
+    default_target: Optional[float] = None
+    is_active: bool
+
+    class Config:
+        from_attributes = True
+
+class ThresholdUpdatePayload(BaseModel):
+    min_value: Optional[float] = None
+    max_value: Optional[float] = None
+    target_value: Optional[float] = None
+    enabled: Optional[bool] = True
+
+class GlobalThresholdResponse(BaseModel):
+    device_type_code: str
+    min_value: Optional[float] = None
+    max_value: Optional[float] = None
+    target_value: Optional[float] = None
+    enabled: bool
+
+class RoomThresholdResponse(BaseModel):
+    room_id: UUID
+    device_type_code: str
+    min_value: Optional[float] = None
+    max_value: Optional[float] = None
+    target_value: Optional[float] = None
+    enabled: bool
+    is_override: bool
+
 # =============================================================================
 # AUTH SCHEMAS
 # =============================================================================

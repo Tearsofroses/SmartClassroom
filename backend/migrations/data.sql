@@ -44,62 +44,101 @@ BEGIN
     FROM students
     WHERE student_id LIKE 'MOCK-STU-%';
 
-    -- Devices: FRONT/BACK axis + LEFT/RIGHT axis persisted in DB JSON.
+    -- Devices: write source-of-truth into room_devices, then sync rooms.devices and device_states.
     FOR v_room IN SELECT id, room_code FROM rooms ORDER BY room_code LIMIT 80 LOOP
+        DELETE FROM room_devices WHERE room_id = v_room.id;
+
+        INSERT INTO room_devices (
+            id,
+            room_id,
+            device_id,
+            device_type,
+            location_front_back,
+            location_left_right,
+            power_consumption_watts,
+            is_active,
+            source,
+            created_at,
+            updated_at
+        ) VALUES
+            (
+                uuid_generate_v4(),
+                v_room.id,
+                REPLACE(v_room.room_code, ' ', '') || '-LI-01',
+                'LIGHT',
+                'FRONT',
+                'LEFT',
+                20,
+                TRUE,
+                'IMPORT',
+                NOW(),
+                NOW()
+            ),
+            (
+                uuid_generate_v4(),
+                v_room.id,
+                REPLACE(v_room.room_code, ' ', '') || '-AC-02',
+                'AC',
+                'BACK',
+                'RIGHT',
+                40,
+                TRUE,
+                'IMPORT',
+                NOW(),
+                NOW()
+            ),
+            (
+                uuid_generate_v4(),
+                v_room.id,
+                REPLACE(v_room.room_code, ' ', '') || '-FA-03',
+                'FAN',
+                'FRONT',
+                'RIGHT',
+                60,
+                TRUE,
+                'IMPORT',
+                NOW(),
+                NOW()
+            ),
+            (
+                uuid_generate_v4(),
+                v_room.id,
+                REPLACE(v_room.room_code, ' ', '') || '-CA-05',
+                'CAMERA',
+                'FRONT',
+                'LEFT',
+                15,
+                TRUE,
+                'IMPORT',
+                NOW(),
+                NOW()
+            );
+
         UPDATE rooms
         SET devices = jsonb_build_object(
             'device_list',
-            jsonb_build_array(
-                jsonb_build_object(
-                    'device_id', REPLACE(v_room.room_code, ' ', '') || '-LI-01',
-                    'device_type', 'LIGHT',
-                    'location_front_back', 'FRONT',
-                    'location_left_right', 'LEFT',
-                    'location', 'FRONT_LEFT',
-                    'status', 'ON',
-                    'mqtt_topic', 'building/*/floor/*/room/' || v_room.room_code || '/device/' || REPLACE(v_room.room_code, ' ', '') || '-LI-01/state',
-                    'power_consumption_watts', 20
+            COALESCE(
+                (
+                    SELECT jsonb_agg(
+                        jsonb_build_object(
+                            'device_id', rd.device_id,
+                            'device_type', rd.device_type,
+                            'location_front_back', rd.location_front_back,
+                            'location_left_right', rd.location_left_right,
+                            'location', rd.location_front_back || '_' || rd.location_left_right,
+                            'status', CASE
+                                WHEN rd.device_type IN ('LIGHT', 'FAN', 'CAMERA') THEN 'ON'
+                                ELSE 'OFF'
+                            END,
+                            'mqtt_topic', 'building/*/floor/*/room/' || v_room.room_code || '/device/' || rd.device_id || '/state',
+                            'power_consumption_watts', rd.power_consumption_watts
+                        )
+                        ORDER BY rd.device_id
+                    )
+                    FROM room_devices rd
+                    WHERE rd.room_id = v_room.id AND rd.is_active = TRUE
                 ),
-                jsonb_build_object(
-                    'device_id', REPLACE(v_room.room_code, ' ', '') || '-AC-02',
-                    'device_type', 'AC',
-                    'location_front_back', 'BACK',
-                    'location_left_right', 'RIGHT',
-                    'location', 'BACK_RIGHT',
-                    'status', 'OFF',
-                    'mqtt_topic', 'building/*/floor/*/room/' || v_room.room_code || '/device/' || REPLACE(v_room.room_code, ' ', '') || '-AC-02/state',
-                    'power_consumption_watts', 40
-                ),
-                jsonb_build_object(
-                    'device_id', REPLACE(v_room.room_code, ' ', '') || '-FA-03',
-                    'device_type', 'FAN',
-                    'location_front_back', 'FRONT',
-                    'location_left_right', 'RIGHT',
-                    'location', 'FRONT_RIGHT',
-                    'status', 'ON',
-                    'mqtt_topic', 'building/*/floor/*/room/' || v_room.room_code || '/device/' || REPLACE(v_room.room_code, ' ', '') || '-FA-03/state',
-                    'power_consumption_watts', 60
-                ),
-                jsonb_build_object(
-                    'device_id', REPLACE(v_room.room_code, ' ', '') || '-PR-04',
-                    'device_type', 'PROJECTOR',
-                    'location_front_back', 'BACK',
-                    'location_left_right', 'LEFT',
-                    'location', 'BACK_LEFT',
-                    'status', 'OFF',
-                    'mqtt_topic', 'building/*/floor/*/room/' || v_room.room_code || '/device/' || REPLACE(v_room.room_code, ' ', '') || '-PR-04/state',
-                    'power_consumption_watts', 80
-                ),
-                jsonb_build_object(
-                    'device_id', REPLACE(v_room.room_code, ' ', '') || '-CA-05',
-                    'device_type', 'CAMERA',
-                    'location_front_back', 'FRONT',
-                    'location_left_right', 'LEFT',
-                    'location', 'FRONT_LEFT',
-                    'status', 'ON',
-                    'mqtt_topic', 'building/*/floor/*/room/' || v_room.room_code || '/device/' || REPLACE(v_room.room_code, ' ', '') || '-CA-05/state',
-                    'power_consumption_watts', 15
-                )
+                '[]'::jsonb
             )
         )
         WHERE id = v_room.id;
@@ -107,12 +146,20 @@ BEGIN
         DELETE FROM device_states WHERE room_id = v_room.id;
 
         INSERT INTO device_states (id, room_id, device_id, device_type, status, manual_override, last_updated, updated_at)
-        VALUES
-            (uuid_generate_v4(), v_room.id, REPLACE(v_room.room_code, ' ', '') || '-LI-01', 'LIGHT', 'ON', FALSE, NOW(), NOW()),
-            (uuid_generate_v4(), v_room.id, REPLACE(v_room.room_code, ' ', '') || '-AC-02', 'AC', 'OFF', FALSE, NOW(), NOW()),
-            (uuid_generate_v4(), v_room.id, REPLACE(v_room.room_code, ' ', '') || '-FA-03', 'FAN', 'ON', FALSE, NOW(), NOW()),
-            (uuid_generate_v4(), v_room.id, REPLACE(v_room.room_code, ' ', '') || '-PR-04', 'PROJECTOR', 'OFF', FALSE, NOW(), NOW()),
-            (uuid_generate_v4(), v_room.id, REPLACE(v_room.room_code, ' ', '') || '-CA-05', 'CAMERA', 'ON', FALSE, NOW(), NOW());
+        SELECT
+            uuid_generate_v4(),
+            rd.room_id,
+            rd.device_id,
+            rd.device_type,
+            CASE
+                WHEN rd.device_type IN ('LIGHT', 'FAN', 'CAMERA') THEN 'ON'
+                ELSE 'OFF'
+            END,
+            FALSE,
+            NOW(),
+            NOW()
+        FROM room_devices rd
+        WHERE rd.room_id = v_room.id AND rd.is_active = TRUE;
     END LOOP;
 
     -- Recreate active mock sessions for consistent dashboards
@@ -197,3 +244,41 @@ BEGIN
         END IF;
     END LOOP;
 END $$;
+
+-- ============================================================================
+-- PHASE 3: SEED USERS, ROLES, AND SCOPE ASSIGNMENTS
+-- ============================================================================
+
+-- Create seed users with different roles
+INSERT INTO users (id, username, email, password_hash, role, is_active) VALUES
+('550e8400-e29b-41d4-a716-446655440001'::UUID, 'lecturer_demo', 'lecturer@campus.local', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5NQn7d3M0WPf2', 'LECTURER', TRUE),
+('550e8400-e29b-41d4-a716-446655440002'::UUID, 'proctor_demo', 'proctor@campus.local', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5NQn7d3M0WPf2', 'EXAM_PROCTOR', TRUE),
+('550e8400-e29b-41d4-a716-446655440003'::UUID, 'board_demo', 'board@campus.local', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5NQn7d3M0WPf2', 'ACADEMIC_BOARD', TRUE),
+('550e8400-e29b-41d4-a716-446655440004'::UUID, 'admin_demo', 'admin@campus.local', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5NQn7d3M0WPf2', 'SYSTEM_ADMIN', TRUE),
+('550e8400-e29b-41d4-a716-446655440005'::UUID, 'facility_demo', 'facility@campus.local', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5NQn7d3M0WPf2', 'FACILITY_STAFF', TRUE),
+('550e8400-e29b-41d4-a716-446655440006'::UUID, 'cleaning_demo', 'cleaning@campus.local', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5NQn7d3M0WPf2', 'CLEANING_STAFF', TRUE)
+ON CONFLICT (username) DO UPDATE SET role = EXCLUDED.role;
+
+-- Assign LECTURER to first 5 classrooms
+INSERT INTO user_room_assignments (user_id, room_id, can_view, can_control)
+SELECT '550e8400-e29b-41d4-a716-446655440001'::UUID, r.id, TRUE, TRUE
+FROM rooms r ORDER BY r.room_code LIMIT 5
+ON CONFLICT (user_id, room_id) DO NOTHING;
+
+-- Assign EXAM_PROCTOR to first 3 classrooms
+INSERT INTO user_room_assignments (user_id, room_id, can_view, can_control)
+SELECT '550e8400-e29b-41d4-a716-446655440002'::UUID, r.id, TRUE, TRUE
+FROM rooms r ORDER BY r.room_code LIMIT 3
+ON CONFLICT (user_id, room_id) DO NOTHING;
+
+-- Assign ACADEMIC_BOARD to first floor
+INSERT INTO user_block_assignments (user_id, floor_id, can_view, can_control)
+SELECT '550e8400-e29b-41d4-a716-446655440003'::UUID, f.id, TRUE, FALSE
+FROM floors f ORDER BY f.floor_number LIMIT 1
+ON CONFLICT (user_id, floor_id) DO NOTHING;
+
+-- Assign FACILITY_STAFF to first floor
+INSERT INTO user_block_assignments (user_id, floor_id, can_view, can_control)
+SELECT '550e8400-e29b-41d4-a716-446655440005'::UUID, f.id, TRUE, TRUE
+FROM floors f ORDER BY f.floor_number LIMIT 1
+ON CONFLICT (user_id, floor_id) DO NOTHING;

@@ -5,10 +5,25 @@ from typing import List, Optional
 from datetime import datetime
 
 from app.database import get_db
-from app.models import IoTRule, Room
+from app.models import IoTRule, Room, User
 from app.schemas.common import IoTRuleCreate, IoTRuleUpdate, IoTRuleResponse
+from app.routers.auth import get_current_user, get_user_permissions
 
 router = APIRouter(prefix="/api", tags=["IoT Auto-Rules"])
+
+
+def _ensure_rule_mutation_role(current_user: User) -> None:
+    if current_user.role not in {"SYSTEM_ADMIN", "FACILITY_STAFF"}:
+        raise HTTPException(status_code=403, detail="Only SYSTEM_ADMIN or FACILITY_STAFF can modify rules")
+
+
+def _ensure_rule_permissions(current_user: User, db: Session, required_permissions: set[str]) -> None:
+    user_permissions = get_user_permissions(current_user, db)
+    if required_permissions.isdisjoint(user_permissions):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Insufficient permissions. Requires one of: {','.join(sorted(required_permissions))}",
+        )
 
 # =============================================================================
 # IOT RULE MANAGEMENT
@@ -18,9 +33,16 @@ router = APIRouter(prefix="/api", tags=["IoT Auto-Rules"])
 async def list_rules(
     room_id: Optional[UUID] = None,
     active_only: bool = True,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """List all IoT auto-rules with optional filters"""
+    _ensure_rule_permissions(
+        current_user,
+        db,
+        {"env_control:light", "env_control:fan", "env_control:ac", "dashboard:view_classroom", "dashboard:view_block", "dashboard:view_university"},
+    )
+
     query = db.query(IoTRule)
     
     if room_id:
@@ -33,8 +55,18 @@ async def list_rules(
     return rules
 
 @router.get("/rooms/{room_id}/rules", response_model=List[IoTRuleResponse])
-async def list_room_rules(room_id: UUID, db: Session = Depends(get_db)):
+async def list_room_rules(
+    room_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """List all active rules for a specific room"""
+    _ensure_rule_permissions(
+        current_user,
+        db,
+        {"env_control:light", "env_control:fan", "env_control:ac", "dashboard:view_classroom", "dashboard:view_block", "dashboard:view_university"},
+    )
+
     room = db.query(Room).filter(Room.id == room_id).first()
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
@@ -49,9 +81,13 @@ async def list_room_rules(room_id: UUID, db: Session = Depends(get_db)):
 @router.post("/rules", response_model=IoTRuleResponse, status_code=201)
 async def create_rule(
     rule: IoTRuleCreate,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Create a new IoT auto-rule"""
+    _ensure_rule_mutation_role(current_user)
+    _ensure_rule_permissions(current_user, db, {"deploy:device_management", "deploy:system_settings"})
+
     room = db.query(Room).filter(Room.id == rule.room_id).first()
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
@@ -81,8 +117,18 @@ async def create_rule(
     return new_rule
 
 @router.get("/rules/{rule_id}", response_model=IoTRuleResponse)
-async def get_rule(rule_id: UUID, db: Session = Depends(get_db)):
+async def get_rule(
+    rule_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """Get specific rule details"""
+    _ensure_rule_permissions(
+        current_user,
+        db,
+        {"env_control:light", "env_control:fan", "env_control:ac", "dashboard:view_classroom", "dashboard:view_block", "dashboard:view_university"},
+    )
+
     rule = db.query(IoTRule).filter(IoTRule.id == rule_id).first()
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
@@ -92,9 +138,13 @@ async def get_rule(rule_id: UUID, db: Session = Depends(get_db)):
 async def update_rule(
     rule_id: UUID,
     updates: IoTRuleUpdate,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Update an existing rule"""
+    _ensure_rule_mutation_role(current_user)
+    _ensure_rule_permissions(current_user, db, {"deploy:device_management", "deploy:system_settings"})
+
     rule = db.query(IoTRule).filter(IoTRule.id == rule_id).first()
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
@@ -117,8 +167,15 @@ async def update_rule(
     return rule
 
 @router.delete("/rules/{rule_id}", status_code=204)
-async def delete_rule(rule_id: UUID, db: Session = Depends(get_db)):
+async def delete_rule(
+    rule_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """Delete (deactivate) a rule"""
+    _ensure_rule_mutation_role(current_user)
+    _ensure_rule_permissions(current_user, db, {"deploy:device_management", "deploy:system_settings"})
+
     rule = db.query(IoTRule).filter(IoTRule.id == rule_id).first()
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
@@ -129,8 +186,15 @@ async def delete_rule(rule_id: UUID, db: Session = Depends(get_db)):
     return None  # 204 No Content
 
 @router.post("/rules/{rule_id}/toggle")
-async def toggle_rule_active(rule_id: UUID, db: Session = Depends(get_db)):
+async def toggle_rule_active(
+    rule_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """Toggle rule active/inactive status"""
+    _ensure_rule_mutation_role(current_user)
+    _ensure_rule_permissions(current_user, db, {"deploy:device_management", "deploy:system_settings"})
+
     rule = db.query(IoTRule).filter(IoTRule.id == rule_id).first()
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
@@ -154,9 +218,13 @@ async def create_occupancy_rule(
     room_id: UUID,
     min_occupancy: int = 1,
     duration_minutes: int = 2,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Helper: Create occupancy-based auto-rule template"""
+    _ensure_rule_mutation_role(current_user)
+    _ensure_rule_permissions(current_user, db, {"deploy:device_management", "deploy:system_settings"})
+
     rule = IoTRuleCreate(
         rule_name=f"Occupancy rule for room {room_id}",
         room_id=room_id,
@@ -167,7 +235,7 @@ async def create_occupancy_rule(
         },
         actions=[
             {"device_type": "LIGHT", "action": "ON"},
-            {"device_type": "PROJECTOR", "action": "ON"}
+            {"device_type": "FAN", "action": "ON"}
         ],
         priority=1
     )
@@ -183,9 +251,13 @@ async def create_occupancy_rule(
 async def create_zero_occupancy_rule(
     room_id: UUID,
     idle_minutes: int = 30,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Helper: Create zero-occupancy auto-rule template (shutdown)"""
+    _ensure_rule_mutation_role(current_user)
+    _ensure_rule_permissions(current_user, db, {"deploy:device_management", "deploy:system_settings"})
+
     rule = IoTRuleCreate(
         rule_name=f"Zero occupancy shutdown for room {room_id}",
         room_id=room_id,
@@ -196,7 +268,6 @@ async def create_zero_occupancy_rule(
         actions=[
             {"device_type": "LIGHT", "action": "OFF"},
             {"device_type": "AC", "action": "OFF"},
-            {"device_type": "PROJECTOR", "action": "OFF"},
             {"device_type": "FAN", "action": "OFF"}
         ],
         priority=0

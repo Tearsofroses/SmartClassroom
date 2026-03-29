@@ -20,6 +20,22 @@ CREATE TABLE IF NOT EXISTS buildings (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
+-- ============================================================================
+-- USERS & AUTHENTICATION (Must come early - referenced by many tables)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  username VARCHAR(255) NOT NULL UNIQUE,
+  email VARCHAR(255) UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  role VARCHAR(50) NOT NULL DEFAULT 'LECTURER',
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  CHECK (role IN ('LECTURER', 'EXAM_PROCTOR', 'ACADEMIC_BOARD', 'SYSTEM_ADMIN', 'FACILITY_STAFF', 'CLEANING_STAFF'))
+);
+
 -- Floors
 CREATE TABLE IF NOT EXISTS floors (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -226,6 +242,102 @@ CREATE TABLE IF NOT EXISTS device_states (
   UNIQUE(room_id, device_id)
 );
 
+-- Room Devices (Normalized inventory source-of-truth for layout imports)
+CREATE TABLE IF NOT EXISTS room_devices (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+  device_id VARCHAR(255) NOT NULL,
+  device_type VARCHAR(50) NOT NULL,
+  location_front_back VARCHAR(10) NOT NULL CHECK (location_front_back IN ('FRONT', 'BACK')),
+  location_left_right VARCHAR(10) NOT NULL CHECK (location_left_right IN ('LEFT', 'RIGHT')),
+  x_percent NUMERIC(5,2),
+  y_percent NUMERIC(5,2),
+  power_consumption_watts INT DEFAULT 0 CHECK (power_consumption_watts >= 0),
+  is_active BOOLEAN DEFAULT TRUE,
+  source VARCHAR(20) NOT NULL DEFAULT 'MANUAL', -- MANUAL | IMPORT
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(room_id, device_id)
+);
+
+-- Room Layout Import Jobs (File-level audit trail)
+CREATE TABLE IF NOT EXISTS room_layout_import_jobs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+  file_name VARCHAR(255) NOT NULL,
+  file_type VARCHAR(20) NOT NULL, -- CSV | JSON | XLSX
+  file_sha256 VARCHAR(64),
+  import_mode VARCHAR(20) NOT NULL, -- REPLACE | MERGE | VALIDATE_ONLY
+  status VARCHAR(20) NOT NULL DEFAULT 'PENDING', -- PENDING | SUCCESS | PARTIAL | FAILED
+  total_rows INT DEFAULT 0,
+  success_rows INT DEFAULT 0,
+  failed_rows INT DEFAULT 0,
+  error_summary TEXT,
+  imported_by UUID REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW(),
+  completed_at TIMESTAMP
+);
+
+-- Room Layout Import Rows (Row-level parse/validation results)
+CREATE TABLE IF NOT EXISTS room_layout_import_rows (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  import_job_id UUID NOT NULL REFERENCES room_layout_import_jobs(id) ON DELETE CASCADE,
+  row_number INT NOT NULL,
+  raw_payload JSONB NOT NULL,
+  parsed_device_id VARCHAR(255),
+  parsed_device_type VARCHAR(50),
+  parsed_location_front_back VARCHAR(10),
+  parsed_location_left_right VARCHAR(10),
+  status VARCHAR(20) NOT NULL, -- SUCCESS | FAILED | SKIPPED
+  error_message TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Device Type Catalog (single source for supported physical device entities)
+CREATE TABLE IF NOT EXISTS device_types (
+  code VARCHAR(50) PRIMARY KEY, -- LIGHT, AC, FAN, CAMERA
+  display_name VARCHAR(100) NOT NULL,
+  unit VARCHAR(30), -- LUX, CELSIUS, RPM, BOOLEAN
+  default_min FLOAT,
+  default_max FLOAT,
+  default_target FLOAT,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  CHECK (default_min IS NULL OR default_max IS NULL OR default_min <= default_max)
+);
+
+-- Global threshold profiles per device type
+CREATE TABLE IF NOT EXISTS device_threshold_profiles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  device_type_code VARCHAR(50) NOT NULL REFERENCES device_types(code) ON DELETE CASCADE,
+  min_value FLOAT,
+  max_value FLOAT,
+  target_value FLOAT,
+  enabled BOOLEAN DEFAULT TRUE,
+  updated_by UUID,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(device_type_code),
+  CHECK (min_value IS NULL OR max_value IS NULL OR min_value <= max_value)
+);
+
+-- Room-level threshold overrides per device type
+CREATE TABLE IF NOT EXISTS room_device_thresholds (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+  device_type_code VARCHAR(50) NOT NULL REFERENCES device_types(code) ON DELETE CASCADE,
+  min_value FLOAT,
+  max_value FLOAT,
+  target_value FLOAT,
+  enabled BOOLEAN DEFAULT TRUE,
+  updated_by UUID,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(room_id, device_type_code),
+  CHECK (min_value IS NULL OR max_value IS NULL OR min_value <= max_value)
+);
+
 -- ============================================================================
 -- 6. PERFORMANCE & RISK WEIGHT CONFIGURATIONS
 -- ============================================================================
@@ -256,26 +368,10 @@ CREATE TABLE IF NOT EXISTS risk_weights (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- ============================================================================
--- 7. USER AUTHENTICATION & AUTHORIZATION
--- ============================================================================
-
--- Users (Admin, Lecturer, Facility Manager)
-CREATE TABLE IF NOT EXISTS users (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  username VARCHAR(255) NOT NULL UNIQUE,
-  email VARCHAR(255) UNIQUE,
-  password_hash VARCHAR(255) NOT NULL,
-  role VARCHAR(50) NOT NULL DEFAULT 'LECTURER', -- ADMIN, LECTURER, FACILITY_MANAGER
-  is_active BOOLEAN DEFAULT TRUE,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
 
 -- ============================================================================
--- 8. OCCUPANCY & SESSION TRACKING
+-- 7. OCCUPANCY & SESSION TRACKING
 -- ============================================================================
-
 -- Room Occupancy Tracking (Real-time occupancy count per room)
 CREATE TABLE IF NOT EXISTS room_occupancy (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -302,6 +398,70 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 
 -- ============================================================================
+-- 9B. RBAC POLICY TABLES (Authorization & Scope Management)
+-- ============================================================================
+
+-- Permissions (Fine-grained permission keys)
+CREATE TABLE IF NOT EXISTS permissions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  key VARCHAR(100) NOT NULL UNIQUE,
+  display_name VARCHAR(255),
+  description TEXT,
+  category VARCHAR(50), -- camera, ai_alerts, env_control, dashboard_scope, mode_controls, incident_review, reporting, deployment
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Role-Permission Mapping
+CREATE TABLE IF NOT EXISTS role_permissions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  role VARCHAR(50) NOT NULL,
+  permission_id UUID NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(role, permission_id),
+  CHECK (role IN ('LECTURER', 'EXAM_PROCTOR', 'ACADEMIC_BOARD', 'SYSTEM_ADMIN', 'FACILITY_STAFF', 'CLEANING_STAFF'))
+);
+
+-- User-to-Room Assignments (Scope: Lecturers assigned to specific rooms/sessions)
+CREATE TABLE IF NOT EXISTS user_room_assignments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+  can_view BOOLEAN DEFAULT TRUE,
+  can_control BOOLEAN DEFAULT FALSE,
+  assigned_by UUID REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(user_id, room_id)
+);
+
+-- User-to-Block Assignments (Scope: Academic Board / Facility Staff assigned to blocks)
+CREATE TABLE IF NOT EXISTS user_block_assignments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  floor_id UUID NOT NULL REFERENCES floors(id) ON DELETE CASCADE,
+  can_view BOOLEAN DEFAULT TRUE,
+  can_control BOOLEAN DEFAULT FALSE,
+  assigned_by UUID REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(user_id, floor_id)
+);
+
+-- Role-to-Mode Access Matrix (Optional: EXAM_PROCTOR mode switching controls)
+CREATE TABLE IF NOT EXISTS role_mode_access (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  role VARCHAR(50) NOT NULL UNIQUE,
+  can_switch_to_testing BOOLEAN DEFAULT FALSE,
+  can_switch_to_learning BOOLEAN DEFAULT FALSE,
+  can_view_reports BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  CHECK (role IN ('LECTURER', 'EXAM_PROCTOR', 'ACADEMIC_BOARD', 'SYSTEM_ADMIN', 'FACILITY_STAFF', 'CLEANING_STAFF'))
+);
+
+-- ============================================================================
 -- 10. INDEXES (For performance optimization)
 -- ============================================================================
 
@@ -318,15 +478,197 @@ CREATE INDEX idx_class_sessions_start_time ON class_sessions(start_time);
 CREATE INDEX idx_risk_incidents_session_id ON risk_incidents(session_id);
 CREATE INDEX idx_risk_incidents_student_id ON risk_incidents(student_id);
 CREATE INDEX idx_device_states_room_id ON device_states(room_id);
+CREATE INDEX idx_room_devices_room_id ON room_devices(room_id);
+CREATE INDEX idx_room_devices_device_type ON room_devices(device_type);
+CREATE INDEX idx_room_layout_import_jobs_room_id ON room_layout_import_jobs(room_id);
+CREATE INDEX idx_room_layout_import_jobs_status ON room_layout_import_jobs(status);
+CREATE INDEX idx_room_layout_import_rows_job_id ON room_layout_import_rows(import_job_id);
+CREATE INDEX idx_device_threshold_profiles_type ON device_threshold_profiles(device_type_code);
+CREATE INDEX idx_room_device_thresholds_room_id ON room_device_thresholds(room_id);
+CREATE INDEX idx_room_device_thresholds_type ON room_device_thresholds(device_type_code);
 CREATE INDEX idx_iot_rules_room_id ON iot_rules(room_id);
 CREATE INDEX idx_performance_weights_subject_id ON performance_weights(subject_id);
 CREATE INDEX idx_room_occupancy_room_id ON room_occupancy(room_id);
 CREATE INDEX idx_audit_logs_entity_id ON audit_logs(entity_id);
 CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
 
+-- RBAC Policy indexes
+CREATE INDEX idx_permissions_category ON permissions(category);
+CREATE INDEX idx_permissions_is_active ON permissions(is_active);
+CREATE INDEX idx_role_permissions_role ON role_permissions(role);
+CREATE INDEX idx_role_permissions_permission_id ON role_permissions(permission_id);
+CREATE INDEX idx_user_room_assignments_user_id ON user_room_assignments(user_id);
+CREATE INDEX idx_user_room_assignments_room_id ON user_room_assignments(room_id);
+CREATE INDEX idx_user_block_assignments_user_id ON user_block_assignments(user_id);
+CREATE INDEX idx_user_block_assignments_floor_id ON user_block_assignments(floor_id);
+CREATE INDEX idx_role_mode_access_role ON role_mode_access(role);
+
 -- ============================================================================
 -- 11. SEED DATA (Initial setup)
 -- ============================================================================
+
+-- Supported physical device entities for dashboard + threshold controls
+INSERT INTO device_types (code, display_name, unit, default_min, default_max, default_target, is_active) VALUES
+('LIGHT', 'Light', 'LUX', 150, 800, 350, TRUE),
+('AC', 'Air Conditioner', 'CELSIUS', 20, 28, 24, TRUE),
+('FAN', 'Fan', 'RPM', 200, 1200, 700, TRUE),
+('CAMERA', 'Camera', 'BOOLEAN', NULL, NULL, NULL, TRUE)
+ON CONFLICT (code) DO UPDATE SET
+  display_name = EXCLUDED.display_name,
+  unit = EXCLUDED.unit,
+  default_min = EXCLUDED.default_min,
+  default_max = EXCLUDED.default_max,
+  default_target = EXCLUDED.default_target,
+  is_active = EXCLUDED.is_active,
+  updated_at = NOW();
+
+-- Global threshold defaults by device type
+INSERT INTO device_threshold_profiles (id, device_type_code, min_value, max_value, target_value, enabled, updated_by, created_at, updated_at)
+VALUES
+  (gen_random_uuid(), 'LIGHT', 150, 800, 350, TRUE, NULL, NOW(), NOW()),
+  (gen_random_uuid(), 'AC', 20, 28, 24, TRUE, NULL, NOW(), NOW()),
+  (gen_random_uuid(), 'FAN', 200, 1200, 700, TRUE, NULL, NOW(), NOW()),
+  (gen_random_uuid(), 'CAMERA', NULL, NULL, NULL, TRUE, NULL, NOW(), NOW())
+ON CONFLICT (device_type_code) DO UPDATE SET
+  min_value = EXCLUDED.min_value,
+  max_value = EXCLUDED.max_value,
+  target_value = EXCLUDED.target_value,
+  enabled = EXCLUDED.enabled,
+  updated_at = NOW();
+
+-- ============================================================================
+-- PERMISSION CATALOG & ROLE-PERMISSION MATRIX (RBAC)
+-- ============================================================================
+
+-- Seed permissions organized by domain
+INSERT INTO permissions (key, display_name, description, category, is_active) VALUES
+('camera:view_live', 'View Live Camera', 'View real-time classroom camera feed', 'camera', TRUE),
+('camera:view_recorded', 'View Recorded Camera', 'Access recorded session video archives', 'camera', TRUE),
+('camera:download', 'Download Camera Feed', 'Export camera recordings', 'camera', TRUE),
+('ai_alerts:view', 'View AI Alerts', 'View behavior detection alerts', 'ai_alerts', TRUE),
+('ai_alerts:acknowledge', 'Acknowledge Alerts', 'Mark alerts as reviewed', 'ai_alerts', TRUE),
+('ai_alerts:create_rules', 'Create Alert Rules', 'Define custom AI detection rules', 'ai_alerts', TRUE),
+('env_control:light', 'Control Lights', 'Adjust classroom lighting', 'env_control', TRUE),
+('env_control:ac', 'Control AC', 'Adjust classroom temperature', 'env_control', TRUE),
+('env_control:fan', 'Control Fan', 'Adjust classroom ventilation', 'env_control', TRUE),
+('env_control:thresholds', 'Manage Thresholds', 'Update device control thresholds', 'env_control', TRUE),
+('dashboard:view_classroom', 'View Classroom Dashboard', 'View single classroom data', 'dashboard_scope', TRUE),
+('dashboard:view_block', 'View Block Dashboard', 'View entire floor/block data', 'dashboard_scope', TRUE),
+('dashboard:view_university', 'View University Dashboard', 'View all building data', 'dashboard_scope', TRUE),
+('dashboard:view_minimal', 'View Minimal Dashboard', 'Display-only access', 'dashboard_scope', TRUE),
+('mode:switch_learning', 'Switch to Learning Mode', 'Start normal classroom sessions', 'mode_controls', TRUE),
+('mode:switch_testing', 'Switch to Testing Mode', 'Start exam/test sessions', 'mode_controls', TRUE),
+('incident:view', 'View Incidents', 'Access detected behavior incidents', 'incident_review', TRUE),
+('incident:audit', 'Audit Incidents', 'Review incident logs and evidence', 'incident_review', TRUE),
+('incident:resolve', 'Resolve Incidents', 'Close or update incident status', 'incident_review', TRUE),
+('report:performance', 'Performance Reports', 'Access student performance analytics', 'reporting', TRUE),
+('report:attendance', 'Attendance Reports', 'View attendance and occupancy data', 'reporting', TRUE),
+('report:incidents', 'Incident Reports', 'Generate behavior incident reports', 'reporting', TRUE),
+('deploy:device_management', 'Manage Devices', 'Add/update/delete classroom devices', 'deployment', TRUE),
+('deploy:user_management', 'Manage Users', 'Create/update user roles and assignments', 'deployment', TRUE),
+('deploy:system_settings', 'System Configuration', 'Update system-wide settings', 'deployment', TRUE)
+ON CONFLICT (key) DO NOTHING;
+
+-- LECTURER role permissions (REQ-01, REQ-02, REQ-05)
+INSERT INTO role_permissions (role, permission_id)
+SELECT 'LECTURER', id FROM permissions WHERE key IN (
+  'camera:view_live',
+  'camera:view_recorded',
+  'dashboard:view_classroom',
+  'mode:switch_learning',
+  'ai_alerts:view',
+  'env_control:light',
+  'env_control:ac',
+  'env_control:fan'
+) ON CONFLICT DO NOTHING;
+
+-- EXAM_PROCTOR role permissions (REQ-03, REQ-04)
+INSERT INTO role_permissions (role, permission_id)
+SELECT 'EXAM_PROCTOR', id FROM permissions WHERE key IN (
+  'camera:view_live',
+  'camera:view_recorded',
+  'mode:switch_testing',
+  'mode:switch_learning',
+  'dashboard:view_classroom',
+  'ai_alerts:view',
+  'ai_alerts:acknowledge',
+  'incident:view',
+  'env_control:light'
+) ON CONFLICT DO NOTHING;
+
+-- ACADEMIC_BOARD role permissions (REQ-06, REQ-07, REQ-08, REQ-11)
+INSERT INTO role_permissions (role, permission_id)
+SELECT 'ACADEMIC_BOARD', id FROM permissions WHERE key IN (
+  'camera:view_live',
+  'camera:view_recorded',
+  'dashboard:view_block',
+  'dashboard:view_university',
+  'ai_alerts:view',
+  'incident:view',
+  'incident:audit',
+  'report:performance',
+  'report:attendance',
+  'report:incidents'
+) ON CONFLICT DO NOTHING;
+
+-- SYSTEM_ADMIN role permissions (REQ-09, REQ-10)
+INSERT INTO role_permissions (role, permission_id)
+SELECT 'SYSTEM_ADMIN', id FROM permissions WHERE key IN (
+  'camera:view_live',
+  'camera:view_recorded',
+  'camera:download',
+  'dashboard:view_university',
+  'ai_alerts:view',
+  'ai_alerts:create_rules',
+  'env_control:light',
+  'env_control:ac',
+  'env_control:fan',
+  'env_control:thresholds',
+  'mode:switch_testing',
+  'mode:switch_learning',
+  'incident:view',
+  'incident:audit',
+  'incident:resolve',
+  'report:performance',
+  'report:attendance',
+  'report:incidents',
+  'deploy:device_management',
+  'deploy:user_management',
+  'deploy:system_settings'
+) ON CONFLICT DO NOTHING;
+
+-- FACILITY_STAFF role permissions
+INSERT INTO role_permissions (role, permission_id)
+SELECT 'FACILITY_STAFF', id FROM permissions WHERE key IN (
+  'dashboard:view_block',
+  'env_control:light',
+  'env_control:ac',
+  'env_control:fan',
+  'env_control:thresholds',
+  'deploy:device_management',
+  'report:attendance'
+) ON CONFLICT DO NOTHING;
+
+-- CLEANING_STAFF role permissions
+INSERT INTO role_permissions (role, permission_id)
+SELECT 'CLEANING_STAFF', id FROM permissions WHERE key IN (
+  'dashboard:view_minimal',
+  'env_control:light'
+) ON CONFLICT DO NOTHING;
+
+-- Role-Mode Access Matrix
+INSERT INTO role_mode_access (role, can_switch_to_testing, can_switch_to_learning, can_view_reports) VALUES
+('LECTURER', FALSE, TRUE, TRUE),
+('EXAM_PROCTOR', TRUE, TRUE, FALSE),
+('ACADEMIC_BOARD', FALSE, FALSE, TRUE),
+('SYSTEM_ADMIN', TRUE, TRUE, TRUE),
+('FACILITY_STAFF', FALSE, TRUE, FALSE),
+('CLEANING_STAFF', FALSE, FALSE, FALSE)
+ON CONFLICT (role) DO UPDATE SET
+  can_switch_to_testing = EXCLUDED.can_switch_to_testing,
+  can_switch_to_learning = EXCLUDED.can_switch_to_learning,
+  can_view_reports = EXCLUDED.can_view_reports,
+  updated_at = NOW();
 
 -- Insert default behavior classes
 INSERT INTO behavior_classes (class_name, actor_type, description, is_active) VALUES

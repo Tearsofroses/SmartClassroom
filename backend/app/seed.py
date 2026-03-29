@@ -45,12 +45,11 @@ BUILDING_CONFIGS = {
     "LAB": (2, 5),  # Lab buildings: 2 floors, 5 rooms/floor
 }
 
-DEVICE_TYPES = ["LIGHT", "AC", "FAN", "PROJECTOR", "CAMERA"]
+DEVICE_TYPES = ["LIGHT", "AC", "FAN", "CAMERA"]
 DEVICE_LOCATIONS = [
     ("FRONT", "LEFT"),
     ("BACK", "RIGHT"),
     ("FRONT", "RIGHT"),
-    ("BACK", "LEFT"),
     ("FRONT", "LEFT"),
 ]
 STUDENT_BEHAVIORS = ["writing", "listening", "raising_hand", "reading"]
