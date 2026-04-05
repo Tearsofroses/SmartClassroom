@@ -21,7 +21,7 @@ def _ensure_incident_scope(current_user: User, room_id: UUID, db: Session) -> No
     if current_user.role == "SYSTEM_ADMIN":
         return
 
-    if current_user.role == "EXAM_PROCTOR":
+    if current_user.role in {"EXAM_PROCTOR", "LECTURER"}:
         assigned_rooms = set(get_user_room_scope(current_user, db))
         if room_id not in assigned_rooms:
             raise HTTPException(status_code=403, detail="User not assigned to this room")
@@ -71,7 +71,7 @@ async def list_all_incidents(
     db: Session = Depends(get_db)
 ):
     """List all risk incidents with optional filters"""
-    _ensure_incident_role(current_user, {"EXAM_PROCTOR", "ACADEMIC_BOARD", "SYSTEM_ADMIN"})
+    _ensure_incident_role(current_user, {"LECTURER", "EXAM_PROCTOR", "ACADEMIC_BOARD", "SYSTEM_ADMIN"})
     _ensure_incident_permissions(current_user, db, {"incident:view"})
 
     query = db.query(RiskIncident)
@@ -88,7 +88,7 @@ async def list_all_incidents(
     
     incidents = query.order_by(RiskIncident.flagged_at.desc()).all()
 
-    if current_user.role == "EXAM_PROCTOR":
+    if current_user.role in {"LECTURER", "EXAM_PROCTOR"}:
         assigned_rooms = set(get_user_room_scope(current_user, db))
         incidents = [
             incident
@@ -113,7 +113,7 @@ async def list_room_incidents(
     db: Session = Depends(get_db)
 ):
     """List all risk incidents in a room"""
-    _ensure_incident_role(current_user, {"EXAM_PROCTOR", "ACADEMIC_BOARD", "SYSTEM_ADMIN"})
+    _ensure_incident_role(current_user, {"LECTURER", "EXAM_PROCTOR", "ACADEMIC_BOARD", "SYSTEM_ADMIN"})
     _ensure_incident_permissions(current_user, db, {"incident:view"})
     _ensure_incident_scope(current_user, room_id, db)
 

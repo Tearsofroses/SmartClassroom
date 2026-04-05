@@ -29,8 +29,8 @@ router = APIRouter(prefix="/api", tags=["Device Management"])
 ALLOWED_FB = {"FRONT", "BACK"}
 ALLOWED_LR = {"LEFT", "RIGHT"}
 EXCLUDED_DEVICE_TYPES = {"PROJECTOR"}
-ALLOWED_MUTATION_ROLES = {"SYSTEM_ADMIN", "FACILITY_STAFF"}
-ALLOWED_TOGGLE_ROLES = {"SYSTEM_ADMIN", "FACILITY_STAFF", "CLEANING_STAFF"}
+ALLOWED_MUTATION_ROLES = {"SYSTEM_ADMIN", "FACILITY_STAFF", "LECTURER", "EXAM_PROCTOR"}
+ALLOWED_TOGGLE_ROLES = {"SYSTEM_ADMIN", "FACILITY_STAFF", "CLEANING_STAFF", "LECTURER", "EXAM_PROCTOR"}
 
 
 def _require_mutation_role(current_user: User) -> None:
@@ -44,7 +44,14 @@ def _require_mutation_role(current_user: User) -> None:
 
 def _require_mutation_permission(current_user: User, db: Session) -> None:
     user_permissions = get_user_permissions(current_user, db)
-    required_permissions = {"deploy:device_management", "env_control:thresholds", "deploy:system_settings"}
+    required_permissions = {
+        "deploy:device_management",
+        "env_control:thresholds",
+        "deploy:system_settings",
+        "env_control:light",
+        "env_control:ac",
+        "env_control:fan",
+    }
     if required_permissions.isdisjoint(user_permissions):
         raise HTTPException(
             status_code=403,

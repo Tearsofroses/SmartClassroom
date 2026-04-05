@@ -1,19 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { JSX } from 'react'
-import { AlertTriangle, CalendarRange, CheckCircle2, Clock3, XCircle } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 
 import {
   getStudentAttendanceSummary,
-  getStudentSessionDetail,
   getStudentWeeklySessions,
 } from '../services/api'
 import type {
   AttendanceStatus,
   StudentAttendanceSummary,
   StudentSessionCalendarItem,
-  StudentSessionDetailResponse,
 } from '../types'
-import { toLocalDateTime } from '../utils/time'
 
 const MINUTES_START = 7 * 60
 const MINUTES_END = 22 * 60
@@ -63,12 +60,10 @@ function getSessionBlockStyle(session: StudentSessionCalendarItem): { top: strin
 }
 
 export function StudentDashboardPage(): JSX.Element {
+  const navigate = useNavigate()
   const [weekStart, setWeekStart] = useState<Date>(() => getWeekStart(new Date()))
   const [sessions, setSessions] = useState<StudentSessionCalendarItem[]>([])
   const [summary, setSummary] = useState<StudentAttendanceSummary | null>(null)
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
-  const [selectedSessionDetail, setSelectedSessionDetail] = useState<StudentSessionDetailResponse | null>(null)
-  const [isLoadingDetail, setIsLoadingDetail] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -87,10 +82,6 @@ export function StudentDashboardPage(): JSX.Element {
 
         setSessions(sessionData)
         setSummary(summaryData)
-
-        if (sessionData.length > 0 && !selectedSessionId) {
-          setSelectedSessionId(sessionData[0].session_id)
-        }
       } catch (loadError) {
         if (!isMounted) return
         setError(loadError instanceof Error ? loadError.message : 'Failed to load student dashboard')
@@ -102,38 +93,7 @@ export function StudentDashboardPage(): JSX.Element {
     return () => {
       isMounted = false
     }
-  }, [selectedSessionId, weekStart])
-
-  useEffect(() => {
-    let isMounted = true
-
-    async function loadDetail(): Promise<void> {
-      if (!selectedSessionId) {
-        setSelectedSessionDetail(null)
-        return
-      }
-
-      try {
-        setIsLoadingDetail(true)
-        const detail = await getStudentSessionDetail(selectedSessionId)
-        if (!isMounted) return
-        setSelectedSessionDetail(detail)
-      } catch (detailError) {
-        if (!isMounted) return
-        setError(detailError instanceof Error ? detailError.message : 'Failed to load session detail')
-      } finally {
-        if (isMounted) {
-          setIsLoadingDetail(false)
-        }
-      }
-    }
-
-    void loadDetail()
-
-    return () => {
-      isMounted = false
-    }
-  }, [selectedSessionId])
+  }, [weekStart])
 
   const sessionsByDay = useMemo(() => {
     const map = new Map<number, StudentSessionCalendarItem[]>()
@@ -171,19 +131,16 @@ export function StudentDashboardPage(): JSX.Element {
     const next = new Date(weekStart)
     next.setDate(weekStart.getDate() - 7)
     setWeekStart(next)
-    setSelectedSessionId(null)
   }
 
   function goToNextWeek(): void {
     const next = new Date(weekStart)
     next.setDate(weekStart.getDate() + 7)
     setWeekStart(next)
-    setSelectedSessionId(null)
   }
 
   function goToCurrentWeek(): void {
     setWeekStart(getWeekStart(new Date()))
-    setSelectedSessionId(null)
   }
 
   return (
@@ -225,7 +182,7 @@ export function StudentDashboardPage(): JSX.Element {
         {error ? <div className="error-panel">{error}</div> : null}
       </section>
 
-      <section className="student-dashboard-layout">
+      <section className="student-dashboard-layout-full">
         <article className="panel">
           <div className="schedule-grid">
             <div className="schedule-time-axis">
@@ -250,14 +207,13 @@ export function StudentDashboardPage(): JSX.Element {
 
                     {(sessionsByDay.get(index) ?? []).map((session) => {
                       const style = getSessionBlockStyle(session)
-                      const isSelected = selectedSessionId === session.session_id
                       return (
                         <button
                           key={session.session_id}
                           type="button"
-                          className={`schedule-block ${isSelected ? 'selected' : ''}`}
+                          className="schedule-block"
                           style={style}
-                          onClick={() => setSelectedSessionId(session.session_id)}
+                          onClick={() => navigate(`/students/me/sessions/${session.session_id}`)}
                         >
                           <p className="schedule-block-title">{session.subject_code ?? session.subject_name ?? 'Session'}</p>
                           <p className="schedule-block-time">
@@ -274,84 +230,6 @@ export function StudentDashboardPage(): JSX.Element {
             </div>
           </div>
         </article>
-
-        <aside className="panel student-session-panel">
-          <h2>Session Detail</h2>
-          {!selectedSessionId ? <p className="muted">Select a session block to view details.</p> : null}
-          {isLoadingDetail ? <p className="muted">Loading details...</p> : null}
-
-          {selectedSessionDetail ? (
-            <div className="student-session-detail-grid">
-              <article className="student-detail-section">
-                <h3>Attendance</h3>
-                <p>
-                  <CalendarRange size={14} /> {toLocalDateTime(selectedSessionDetail.start_time)}
-                </p>
-                <p>
-                  <Clock3 size={14} /> Grace: {selectedSessionDetail.grace_minutes} min
-                </p>
-                <p>
-                  <CheckCircle2 size={14} /> Status: {selectedSessionDetail.attendance_status}
-                </p>
-                <p>First seen: {toLocalDateTime(selectedSessionDetail.first_seen_at)}</p>
-                <p>Confidence: {selectedSessionDetail.confidence != null ? selectedSessionDetail.confidence.toFixed(2) : '-'}</p>
-              </article>
-
-              <article className="student-detail-section">
-                <h3>Behavior In Class</h3>
-                {selectedSessionDetail.behavior_summary.length === 0 ? (
-                  <p className="muted">No behavior events recorded for this session.</p>
-                ) : (
-                  <div className="table-scroll">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Behavior</th>
-                          <th>Count</th>
-                          <th>Duration (s)</th>
-                          <th>Avg Conf.</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedSessionDetail.behavior_summary.map((item) => (
-                          <tr key={item.behavior_class}>
-                            <td>{item.behavior_class}</td>
-                            <td>{item.count}</td>
-                            <td>{item.duration_seconds}</td>
-                            <td>{item.avg_confidence.toFixed(2)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </article>
-
-              <article className="student-detail-section">
-                <h3>Risk Incidents</h3>
-                {selectedSessionDetail.incidents.length === 0 ? (
-                  <p className="muted">No incidents for this session.</p>
-                ) : (
-                  <div className="incident-list">
-                    {selectedSessionDetail.incidents.map((incident) => (
-                      <div key={incident.id} className="incident-item severity-high">
-                        <header>
-                          <strong>{incident.risk_level}</strong>
-                          <span>{new Date(incident.flagged_at).toLocaleString()}</span>
-                        </header>
-                        <p>
-                          <AlertTriangle size={14} /> Score: {incident.risk_score.toFixed(2)}
-                        </p>
-                        <p>{incident.reviewed ? <CheckCircle2 size={14} /> : <XCircle size={14} />} {incident.reviewed ? 'Reviewed' : 'Unreviewed'}</p>
-                        {incident.reviewer_notes ? <p>Notes: {incident.reviewer_notes}</p> : null}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </article>
-            </div>
-          ) : null}
-        </aside>
       </section>
     </main>
   )

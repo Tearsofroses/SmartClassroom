@@ -54,13 +54,98 @@ export interface SessionSummary {
   room_id: string
   room_code: string | null
   teacher_id: string
+  teacher_name?: string | null
   subject_id: string
+  subject_name?: string | null
   mode: SessionMode
   status: SessionStatus
   start_time: string
   end_time: string | null
   students_present: string[]
   risk_alerts_count: number
+}
+
+export interface TutorRoomContext {
+  building_id: string | null
+  floor_id: string | null
+  room_id: string | null
+  room_code: string | null
+  active_sessions: SessionSummary[]
+  selected_session_id: string | null
+  selection_reason:
+    | 'no_assigned_room'
+    | 'first_assigned_room'
+    | 'timetable_room'
+    | 'teacher_owned_active'
+    | 'room_recent_active'
+}
+
+export interface CurrentSessionTarget {
+  session_id: string | null
+  room_id: string | null
+  room_code: string | null
+  building_id: string | null
+  mode: SessionMode | null
+  fallback_reason:
+    | 'timetable'
+    | 'auto_created_from_timetable'
+    | 'recent_active'
+    | 'first_active'
+    | 'none'
+  start_time: string | null
+}
+
+export type RefreshIntervalMode = 'NORMAL' | 'TESTING'
+
+export interface RefreshIntervalEffective {
+  mode: RefreshIntervalMode
+  interval_ms: number
+  source_scope: 'ROOM' | 'BUILDING' | 'GROUP' | 'FALLBACK'
+  source_scope_id: string | null
+  building_id: string
+  room_id: string | null
+  min_interval_ms: number
+  max_interval_ms: number
+}
+
+export interface RefreshIntervalGroupRow {
+  group_code: 'A' | 'B' | 'C' | 'LABS'
+  normal_interval_ms: number
+  testing_interval_ms: number
+}
+
+export interface RefreshIntervalGroupListResponse {
+  groups: RefreshIntervalGroupRow[]
+  min_interval_ms: number
+  max_interval_ms: number
+}
+
+export interface RefreshIntervalScopeValue {
+  mode: RefreshIntervalMode
+  interval_ms: number
+  is_override: boolean
+  source_scope: 'ROOM' | 'BUILDING' | 'GROUP' | 'FALLBACK'
+  source_scope_id: string | null
+}
+
+export interface BuildingRefreshIntervalConfig {
+  building_id: string
+  building_name: string
+  building_code: string | null
+  group_code: string | null
+  values: RefreshIntervalScopeValue[]
+  min_interval_ms: number
+  max_interval_ms: number
+}
+
+export interface RoomRefreshIntervalConfig {
+  room_id: string
+  room_code: string
+  building_id: string
+  building_code: string | null
+  values: RefreshIntervalScopeValue[]
+  min_interval_ms: number
+  max_interval_ms: number
 }
 
 export interface SessionAnalytics {
@@ -104,6 +189,20 @@ export interface RoomDeviceState {
 export interface RoomDeviceStatusAll {
   room_id: string
   device_states: RoomDeviceState[]
+}
+
+export interface RoomSensorReadingItem {
+  sensor_key: string
+  value: number
+  unit: string | null
+  source_topic: string | null
+  captured_at: string
+}
+
+export interface RoomSensorReadingsResponse {
+  room_id: string
+  room_code: string | null
+  readings: RoomSensorReadingItem[]
 }
 
 export interface RoomDeviceInventoryItem {

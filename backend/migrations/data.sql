@@ -4,6 +4,42 @@
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- Ensure group-level polling defaults exist for refresh interval settings.
+INSERT INTO refresh_interval_settings (id, scope_type, scope_id, mode, interval_ms, updated_by, created_at, updated_at)
+VALUES
+    (uuid_generate_v4(), 'GROUP', 'A', 'NORMAL', 30000, NULL, NOW(), NOW()),
+    (uuid_generate_v4(), 'GROUP', 'A', 'TESTING', 2000, NULL, NOW(), NOW()),
+    (uuid_generate_v4(), 'GROUP', 'B', 'NORMAL', 30000, NULL, NOW(), NOW()),
+    (uuid_generate_v4(), 'GROUP', 'B', 'TESTING', 2000, NULL, NOW(), NOW()),
+    (uuid_generate_v4(), 'GROUP', 'C', 'NORMAL', 30000, NULL, NOW(), NOW()),
+    (uuid_generate_v4(), 'GROUP', 'C', 'TESTING', 2000, NULL, NOW(), NOW()),
+    (uuid_generate_v4(), 'GROUP', 'LABS', 'NORMAL', 30000, NULL, NOW(), NOW()),
+    (uuid_generate_v4(), 'GROUP', 'LABS', 'TESTING', 2000, NULL, NOW(), NOW())
+ON CONFLICT (scope_type, scope_id, mode) DO UPDATE SET
+    interval_ms = EXCLUDED.interval_ms,
+    updated_at = NOW();
+
+-- Schema guard for existing databases that predate teachers.user_id mapping.
+ALTER TABLE teachers
+ADD COLUMN IF NOT EXISTS user_id UUID;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'teachers_user_id_fkey'
+    ) THEN
+        ALTER TABLE teachers
+        ADD CONSTRAINT teachers_user_id_fkey
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+    END IF;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_teachers_user_id_unique
+ON teachers (user_id)
+WHERE user_id IS NOT NULL;
+
 DO $$
 DECLARE
     v_teacher_id UUID;
@@ -177,6 +213,18 @@ BEGIN
     );
 
     DELETE FROM behavior_logs
+    WHERE session_id IN (
+        SELECT id FROM class_sessions
+        WHERE teacher_id = v_teacher_id AND subject_id = v_subject_id AND status = 'ACTIVE'
+    );
+
+    DELETE FROM attendance_events
+    WHERE session_id IN (
+        SELECT id FROM class_sessions
+        WHERE teacher_id = v_teacher_id AND subject_id = v_subject_id AND status = 'ACTIVE'
+    );
+
+    DELETE FROM attendance_session_configs
     WHERE session_id IN (
         SELECT id FROM class_sessions
         WHERE teacher_id = v_teacher_id AND subject_id = v_subject_id AND status = 'ACTIVE'
@@ -398,19 +446,28 @@ END $$;
 
 -- Create seed users with different roles
 INSERT INTO users (id, username, email, password_hash, role, is_active) VALUES
-('550e8400-e29b-41d4-a716-446655440001'::UUID, 'lecturer_demo', 'lecturer@campus.local', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5NQn7d3M0WPf2', 'LECTURER', TRUE),
-('550e8400-e29b-41d4-a716-446655440002'::UUID, 'proctor_demo', 'proctor@campus.local', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5NQn7d3M0WPf2', 'EXAM_PROCTOR', TRUE),
-('550e8400-e29b-41d4-a716-446655440003'::UUID, 'board_demo', 'board@campus.local', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5NQn7d3M0WPf2', 'ACADEMIC_BOARD', TRUE),
-('550e8400-e29b-41d4-a716-446655440004'::UUID, 'admin_demo', 'admin@campus.local', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5NQn7d3M0WPf2', 'SYSTEM_ADMIN', TRUE),
-('550e8400-e29b-41d4-a716-446655440005'::UUID, 'facility_demo', 'facility@campus.local', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5NQn7d3M0WPf2', 'FACILITY_STAFF', TRUE),
-('550e8400-e29b-41d4-a716-446655440006'::UUID, 'cleaning_demo', 'cleaning@campus.local', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5NQn7d3M0WPf2', 'CLEANING_STAFF', TRUE),
-('550e8400-e29b-41d4-a716-446655440007'::UUID, 'student_demo', 'student@campus.local', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5NQn7d3M0WPf2', 'STUDENT', TRUE)
-ON CONFLICT (username) DO UPDATE SET role = EXCLUDED.role;
+('550e8400-e29b-41d4-a716-446655440001'::UUID, 'lecturer_demo', 'lecturer@campus.local', '$2b$12$EJS8Y5nGPwWhGhG/Wh9vgeu0oBPBSnq7xRvqgh5ubYst5xA4uz7JS', 'LECTURER', TRUE),
+('550e8400-e29b-41d4-a716-446655440002'::UUID, 'proctor_demo', 'proctor@campus.local', '$2b$12$EJS8Y5nGPwWhGhG/Wh9vgeu0oBPBSnq7xRvqgh5ubYst5xA4uz7JS', 'EXAM_PROCTOR', TRUE),
+('550e8400-e29b-41d4-a716-446655440003'::UUID, 'board_demo', 'board@campus.local', '$2b$12$EJS8Y5nGPwWhGhG/Wh9vgeu0oBPBSnq7xRvqgh5ubYst5xA4uz7JS', 'ACADEMIC_BOARD', TRUE),
+('550e8400-e29b-41d4-a716-446655440004'::UUID, 'admin_demo', 'admin@campus.local', '$2b$12$EJS8Y5nGPwWhGhG/Wh9vgeu0oBPBSnq7xRvqgh5ubYst5xA4uz7JS', 'SYSTEM_ADMIN', TRUE),
+('550e8400-e29b-41d4-a716-446655440005'::UUID, 'facility_demo', 'facility@campus.local', '$2b$12$EJS8Y5nGPwWhGhG/Wh9vgeu0oBPBSnq7xRvqgh5ubYst5xA4uz7JS', 'FACILITY_STAFF', TRUE),
+('550e8400-e29b-41d4-a716-446655440006'::UUID, 'cleaning_demo', 'cleaning@campus.local', '$2b$12$EJS8Y5nGPwWhGhG/Wh9vgeu0oBPBSnq7xRvqgh5ubYst5xA4uz7JS', 'CLEANING_STAFF', TRUE),
+('550e8400-e29b-41d4-a716-446655440007'::UUID, 'student_demo', 'student@campus.local', '$2b$12$EJS8Y5nGPwWhGhG/Wh9vgeu0oBPBSnq7xRvqgh5ubYst5xA4uz7JS', 'STUDENT', TRUE)
+ON CONFLICT (username) DO UPDATE SET
+    email = EXCLUDED.email,
+    password_hash = EXCLUDED.password_hash,
+    role = EXCLUDED.role,
+    is_active = EXCLUDED.is_active;
 
 -- Link student demo user to first seeded mock student profile
 UPDATE students
 SET user_id = '550e8400-e29b-41d4-a716-446655440007'::UUID
 WHERE student_id = 'MOCK-STU-001';
+
+-- Link lecturer demo account to mock teacher profile (identity mapping for auto-open)
+UPDATE teachers
+SET user_id = '550e8400-e29b-41d4-a716-446655440001'::UUID
+WHERE email = 'mock.teacher@campus.local';
 
 -- Assign LECTURER to first 5 classrooms
 INSERT INTO user_room_assignments (user_id, room_id, can_view, can_control)
@@ -435,3 +492,167 @@ INSERT INTO user_block_assignments (user_id, floor_id, can_view, can_control)
 SELECT '550e8400-e29b-41d4-a716-446655440005'::UUID, f.id, TRUE, TRUE
 FROM floors f ORDER BY f.floor_number LIMIT 1
 ON CONFLICT (user_id, floor_id) DO NOTHING;
+
+-- Ensure lecturer role includes incident feed visibility for tutor dashboard.
+INSERT INTO role_permissions (role, permission_id)
+SELECT 'LECTURER', p.id
+FROM permissions p
+WHERE p.key = 'incident:view'
+ON CONFLICT DO NOTHING;
+
+-- Ensure EXAM_PROCTOR is testing-mode locked (no learning-mode switch permission).
+DELETE FROM role_permissions rp
+USING permissions p
+WHERE rp.permission_id = p.id
+    AND rp.role = 'EXAM_PROCTOR'
+    AND p.key = 'mode:switch_learning';
+
+INSERT INTO role_mode_access (role, can_switch_to_testing, can_switch_to_learning, can_view_reports)
+VALUES ('EXAM_PROCTOR', TRUE, FALSE, FALSE)
+ON CONFLICT (role) DO UPDATE SET
+        can_switch_to_testing = EXCLUDED.can_switch_to_testing,
+        can_switch_to_learning = EXCLUDED.can_switch_to_learning,
+        can_view_reports = EXCLUDED.can_view_reports,
+        updated_at = NOW();
+
+-- Seed deterministic timetable for lecturer_demo in assigned rooms (server timezone based)
+WITH lecturer_teacher AS (
+    SELECT t.id AS teacher_id
+    FROM teachers t
+    WHERE t.user_id = '550e8400-e29b-41d4-a716-446655440001'::UUID
+    LIMIT 1
+), selected_subject AS (
+    SELECT s.id AS subject_id
+    FROM subjects s
+    WHERE s.code = 'MOCK101'
+    LIMIT 1
+), lecturer_rooms AS (
+    SELECT ura.room_id, ROW_NUMBER() OVER (ORDER BY r.room_code) AS rn
+    FROM user_room_assignments ura
+    JOIN rooms r ON r.id = ura.room_id
+    WHERE ura.user_id = '550e8400-e29b-41d4-a716-446655440001'::UUID
+    ORDER BY r.room_code
+), current_day AS (
+    SELECT (EXTRACT(ISODOW FROM NOW())::INT - 1) AS day_of_week
+)
+DELETE FROM timetable
+WHERE teacher_id IN (SELECT teacher_id FROM lecturer_teacher);
+
+WITH lecturer_teacher AS (
+    SELECT t.id AS teacher_id
+    FROM teachers t
+    WHERE t.user_id = '550e8400-e29b-41d4-a716-446655440001'::UUID
+    LIMIT 1
+), selected_subject AS (
+    SELECT s.id AS subject_id
+    FROM subjects s
+    WHERE s.code = 'MOCK101'
+    LIMIT 1
+), lecturer_rooms AS (
+    SELECT ura.room_id, ROW_NUMBER() OVER (ORDER BY r.room_code) AS rn
+    FROM user_room_assignments ura
+    JOIN rooms r ON r.id = ura.room_id
+    WHERE ura.user_id = '550e8400-e29b-41d4-a716-446655440001'::UUID
+    ORDER BY r.room_code
+), current_day AS (
+    SELECT (EXTRACT(ISODOW FROM NOW())::INT - 1) AS day_of_week
+)
+INSERT INTO timetable (id, subject_id, teacher_id, room_id, day_of_week, start_time, end_time, expected_students, created_at, updated_at)
+SELECT
+    uuid_generate_v4(),
+    ss.subject_id,
+    lt.teacher_id,
+    lr.room_id,
+    cd.day_of_week,
+    slot.start_time::time,
+    slot.end_time::time,
+    30,
+    NOW(),
+    NOW()
+FROM lecturer_teacher lt
+CROSS JOIN selected_subject ss
+CROSS JOIN current_day cd
+JOIN (
+    VALUES
+        (1, '08:00', '10:00'),
+        (2, '13:00', '15:00'),
+        (3, '15:00', '17:00')
+) AS slot(slot_index, start_time, end_time) ON TRUE
+JOIN lecturer_rooms lr ON lr.rn = slot.slot_index;
+
+-- Demo invariant safeguard: lecturer_demo must always have at least one ACTIVE session in assigned scope.
+DO $$
+DECLARE
+    v_lecturer_user_id UUID := '550e8400-e29b-41d4-a716-446655440001'::UUID;
+    v_teacher_id UUID;
+    v_subject_id UUID;
+    v_room_id UUID;
+    v_active_count INT := 0;
+BEGIN
+    SELECT t.id INTO v_teacher_id
+    FROM teachers t
+    WHERE t.user_id = v_lecturer_user_id
+    LIMIT 1;
+
+    IF v_teacher_id IS NULL THEN
+        SELECT t.id INTO v_teacher_id
+        FROM teachers t
+        WHERE t.email = 'mock.teacher@campus.local'
+        LIMIT 1;
+    END IF;
+
+    SELECT s.id INTO v_subject_id
+    FROM subjects s
+    WHERE s.code = 'MOCK101'
+    LIMIT 1;
+
+    SELECT ura.room_id INTO v_room_id
+    FROM user_room_assignments ura
+    JOIN rooms r ON r.id = ura.room_id
+    WHERE ura.user_id = v_lecturer_user_id
+    ORDER BY r.room_code
+    LIMIT 1;
+
+    IF v_teacher_id IS NULL OR v_subject_id IS NULL OR v_room_id IS NULL THEN
+        RAISE NOTICE 'Skipping lecturer demo invariant insert (teacher/subject/room missing).';
+        RETURN;
+    END IF;
+
+    SELECT COUNT(*) INTO v_active_count
+    FROM class_sessions cs
+    WHERE cs.status = 'ACTIVE'
+      AND cs.room_id IN (
+          SELECT room_id
+          FROM user_room_assignments
+          WHERE user_id = v_lecturer_user_id
+      );
+
+    IF v_active_count = 0 THEN
+        INSERT INTO class_sessions (
+            id,
+            room_id,
+            teacher_id,
+            subject_id,
+            mode,
+            start_time,
+            students_present,
+            status,
+            created_at,
+            updated_at
+        )
+        VALUES (
+            uuid_generate_v4(),
+            v_room_id,
+            v_teacher_id,
+            v_subject_id,
+            'NORMAL',
+            NOW() - INTERVAL '2 minutes',
+            '[]'::json,
+            'ACTIVE',
+            NOW(),
+            NOW()
+        );
+
+        RAISE NOTICE 'Inserted fallback ACTIVE session for lecturer_demo invariant.';
+    END IF;
+END $$;

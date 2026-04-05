@@ -52,6 +52,7 @@ class Room(Base):
     room_devices = relationship("RoomDevice", back_populates="room", cascade="all, delete-orphan")
     device_thresholds = relationship("RoomDeviceThreshold", back_populates="room", cascade="all, delete-orphan")
     occupancy = relationship("RoomOccupancy", back_populates="room", uselist=False, cascade="all, delete-orphan")
+    sensor_readings = relationship("RoomSensorReading", back_populates="room", cascade="all, delete-orphan")
 
 class Subject(Base):
     __tablename__ = "subjects"
@@ -71,10 +72,12 @@ class Teacher(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String, nullable=False)
     email = Column(String, unique=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), unique=True, index=True)
     phone = Column(String)
     department = Column(String)
     created_at = Column(DateTime, server_default=func.now())
     
+    user = relationship("User", back_populates="teacher_profile")
     sessions = relationship("ClassSession", back_populates="teacher")
 
 class Student(Base):
@@ -369,6 +372,19 @@ class RoomDeviceThreshold(Base):
 
     room = relationship("Room", back_populates="device_thresholds")
 
+class RefreshIntervalSetting(Base):
+    __tablename__ = "refresh_interval_settings"
+    __table_args__ = (UniqueConstraint("scope_type", "scope_id", "mode", name="uq_refresh_interval_scope_mode"),)
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    scope_type = Column(String(20), nullable=False)  # GROUP, BUILDING, ROOM
+    scope_id = Column(String(100), nullable=False)  # Group key or UUID string
+    mode = Column(String(20), nullable=False)  # NORMAL, TESTING
+    interval_ms = Column(Integer, nullable=False)
+    updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), index=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
 class RoomOccupancy(Base):
     __tablename__ = "room_occupancy"
     
@@ -380,6 +396,22 @@ class RoomOccupancy(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     
     room = relationship("Room", back_populates="occupancy")
+
+
+class RoomSensorReading(Base):
+    __tablename__ = "room_sensor_readings"
+    __table_args__ = (UniqueConstraint("room_id", "sensor_key", name="uq_room_sensor_key"),)
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    room_id = Column(UUID(as_uuid=True), ForeignKey("rooms.id"), nullable=False, index=True)
+    sensor_key = Column(String(50), nullable=False, index=True)
+    value = Column(Float, nullable=False)
+    unit = Column(String(20))
+    source_topic = Column(String(255))
+    captured_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    room = relationship("Room", back_populates="sensor_readings")
 
 # =============================================================================
 # 6. CONFIGURATION MODELS
@@ -425,6 +457,7 @@ class User(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     student_profile = relationship("Student", back_populates="user", uselist=False)
+    teacher_profile = relationship("Teacher", back_populates="user", uselist=False)
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"

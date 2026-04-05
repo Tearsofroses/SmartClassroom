@@ -308,6 +308,43 @@ All tables are created and populated with seed data:
 
 ## Troubleshooting
 
+## Role Access Control Testing
+
+### 1) Run backend authorization unit tests
+```powershell
+docker compose exec backend pytest -q backend/tests/test_auth_access_helpers.py backend/tests/test_students_helpers.py backend/tests/test_attendance_helpers.py
+```
+
+### 2) Run role-by-role smoke access matrix
+```powershell
+powershell -ExecutionPolicy Bypass -File .\smoke_role_access.ps1
+```
+
+### 3) Expected matrix reference
+- See `docs/ROLE_ACCESS_TEST_MATRIX.md` for expected HTTP status per role and endpoint.
+
+## Lecturer Demo Preflight (Always Active Session)
+
+Goal: guarantee `lecturer_demo` has at least one `ACTIVE` session in assigned room scope for demos, without changing runtime session resolution logic.
+
+### 1) Run one-command reset + preflight
+```powershell
+powershell -ExecutionPolicy Bypass -File .\demo_reset_lecturer_session.ps1
+```
+
+### 2) Expected success output
+- `DEMO PREP READY`
+- `lecturer_demo scoped active sessions: <n>` where `n >= 1`
+
+### 3) If preflight fails
+- Verify containers are running: `docker compose ps`
+- Re-apply schema/data if needed:
+```powershell
+docker compose down
+docker compose up -d --build
+powershell -ExecutionPolicy Bypass -File .\demo_reset_lecturer_session.ps1
+```
+
 ### Backend Not Responding
 ```powershell
 docker compose logs backend --tail 50

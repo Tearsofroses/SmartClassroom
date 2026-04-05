@@ -1,16 +1,11 @@
-import { FormEvent, useMemo, useState } from 'react'
+import { FormEvent, useState } from 'react'
 import type { JSX } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate } from 'react-router-dom'
 import { getCurrentPermissions, login } from '../services/auth'
 import { useAuthStore } from '../store/auth'
 
-interface LocationState {
-  from?: string
-}
-
 export function LoginPage(): JSX.Element {
   const navigate = useNavigate()
-  const location = useLocation()
   const token = useAuthStore((state) => state.token)
   const setAuthSession = useAuthStore((state) => state.setAuthSession)
   const [username, setUsername] = useState('admin_demo')
@@ -18,13 +13,8 @@ export function LoginPage(): JSX.Element {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const redirectTo = useMemo(() => {
-    const state = location.state as LocationState | null
-    return state?.from ?? '/'
-  }, [location.state])
-
   if (token) {
-    return <Navigate to={redirectTo} replace />
+    return <Navigate to="/" replace />
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -37,7 +27,7 @@ export function LoginPage(): JSX.Element {
       setAuthSession(response.access_token, response.user, [])
       const permissions = await getCurrentPermissions()
       setAuthSession(response.access_token, response.user, permissions)
-      navigate(redirectTo, { replace: true })
+      navigate('/', { replace: true })
     } catch (submitError) {
       const message = submitError instanceof Error ? submitError.message : 'Login failed'
       setError(message)

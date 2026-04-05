@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS teachers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name VARCHAR(255) NOT NULL,
   email VARCHAR(255) UNIQUE,
+  user_id UUID UNIQUE REFERENCES users(id) ON DELETE SET NULL,
   phone VARCHAR(20),
   department VARCHAR(255),
   created_at TIMESTAMP DEFAULT NOW(),
@@ -105,7 +106,7 @@ CREATE TABLE IF NOT EXISTS enrollments (
 -- 2. TIMETABLE & SESSION MANAGEMENT
 -- ============================================================================
 
--- University Timetable (Fixed schedule)
+-- University Timetable (Fixed schedule)`
 CREATE TABLE IF NOT EXISTS timetable (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   subject_id UUID NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
@@ -383,6 +384,19 @@ CREATE TABLE IF NOT EXISTS room_device_thresholds (
   CHECK (min_value IS NULL OR max_value IS NULL OR min_value <= max_value)
 );
 
+-- Polling refresh interval settings with hierarchical scope overrides
+CREATE TABLE IF NOT EXISTS refresh_interval_settings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  scope_type VARCHAR(20) NOT NULL CHECK (scope_type IN ('GROUP', 'BUILDING', 'ROOM')),
+  scope_id VARCHAR(100) NOT NULL,
+  mode VARCHAR(20) NOT NULL CHECK (mode IN ('NORMAL', 'TESTING')),
+  interval_ms INT NOT NULL CHECK (interval_ms >= 1000 AND interval_ms <= 120000),
+  updated_by UUID REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(scope_type, scope_id, mode)
+);
+
 -- ============================================================================
 -- 6. PERFORMANCE & RISK WEIGHT CONFIGURATIONS
 -- ============================================================================
@@ -426,6 +440,19 @@ CREATE TABLE IF NOT EXISTS room_occupancy (
   last_detected TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
   UNIQUE(room_id)
+);
+
+-- Room Sensor Readings (latest per room + sensor key)
+CREATE TABLE IF NOT EXISTS room_sensor_readings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+  sensor_key VARCHAR(50) NOT NULL,
+  value FLOAT NOT NULL,
+  unit VARCHAR(20),
+  source_topic VARCHAR(255),
+  captured_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(room_id, sensor_key)
 );
 
 -- ============================================================================
@@ -540,9 +567,13 @@ CREATE INDEX idx_room_layout_import_rows_job_id ON room_layout_import_rows(impor
 CREATE INDEX idx_device_threshold_profiles_type ON device_threshold_profiles(device_type_code);
 CREATE INDEX idx_room_device_thresholds_room_id ON room_device_thresholds(room_id);
 CREATE INDEX idx_room_device_thresholds_type ON room_device_thresholds(device_type_code);
+CREATE INDEX idx_refresh_interval_settings_scope ON refresh_interval_settings(scope_type, scope_id, mode);
 CREATE INDEX idx_iot_rules_room_id ON iot_rules(room_id);
 CREATE INDEX idx_performance_weights_subject_id ON performance_weights(subject_id);
 CREATE INDEX idx_room_occupancy_room_id ON room_occupancy(room_id);
+CREATE INDEX idx_room_sensor_readings_room_id ON room_sensor_readings(room_id);
+CREATE INDEX idx_room_sensor_readings_sensor_key ON room_sensor_readings(sensor_key);
+CREATE INDEX idx_room_sensor_readings_captured_at ON room_sensor_readings(captured_at);
 CREATE INDEX idx_audit_logs_entity_id ON audit_logs(entity_id);
 CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
 
@@ -590,6 +621,21 @@ ON CONFLICT (device_type_code) DO UPDATE SET
   enabled = EXCLUDED.enabled,
   updated_at = NOW();
 
+-- Group-level polling interval defaults (fallback chain starts here)
+INSERT INTO refresh_interval_settings (id, scope_type, scope_id, mode, interval_ms, updated_by, created_at, updated_at)
+VALUES
+  (gen_random_uuid(), 'GROUP', 'A', 'NORMAL', 30000, NULL, NOW(), NOW()),
+  (gen_random_uuid(), 'GROUP', 'A', 'TESTING', 2000, NULL, NOW(), NOW()),
+  (gen_random_uuid(), 'GROUP', 'B', 'NORMAL', 30000, NULL, NOW(), NOW()),
+  (gen_random_uuid(), 'GROUP', 'B', 'TESTING', 2000, NULL, NOW(), NOW()),
+  (gen_random_uuid(), 'GROUP', 'C', 'NORMAL', 30000, NULL, NOW(), NOW()),
+  (gen_random_uuid(), 'GROUP', 'C', 'TESTING', 2000, NULL, NOW(), NOW()),
+  (gen_random_uuid(), 'GROUP', 'LABS', 'NORMAL', 30000, NULL, NOW(), NOW()),
+  (gen_random_uuid(), 'GROUP', 'LABS', 'TESTING', 2000, NULL, NOW(), NOW())
+ON CONFLICT (scope_type, scope_id, mode) DO UPDATE SET
+  interval_ms = EXCLUDED.interval_ms,
+  updated_at = NOW();
+
 -- ============================================================================
 -- PERMISSION CATALOG & ROLE-PERMISSION MATRIX (RBAC)
 -- ============================================================================
@@ -634,6 +680,8 @@ SELECT 'LECTURER', id FROM permissions WHERE key IN (
   'camera:view_recorded',
   'dashboard:view_classroom',
   'mode:switch_learning',
+  'mode:switch_testing',
+  'incident:view',
   'ai_alerts:view',
   'env_control:light',
   'env_control:ac',
@@ -646,7 +694,6 @@ SELECT 'EXAM_PROCTOR', id FROM permissions WHERE key IN (
   'camera:view_live',
   'camera:view_recorded',
   'mode:switch_testing',
-  'mode:switch_learning',
   'dashboard:view_classroom',
   'ai_alerts:view',
   'ai_alerts:acknowledge',
@@ -725,8 +772,8 @@ SELECT 'STUDENT', id FROM permissions WHERE key IN (
 
 -- Role-Mode Access Matrix
 INSERT INTO role_mode_access (role, can_switch_to_testing, can_switch_to_learning, can_view_reports) VALUES
-('LECTURER', FALSE, TRUE, TRUE),
-('EXAM_PROCTOR', TRUE, TRUE, FALSE),
+('LECTURER', TRUE, TRUE, TRUE),
+('EXAM_PROCTOR', TRUE, FALSE, FALSE),
 ('ACADEMIC_BOARD', FALSE, FALSE, TRUE),
 ('SYSTEM_ADMIN', TRUE, TRUE, TRUE),
 ('FACILITY_STAFF', FALSE, TRUE, FALSE),

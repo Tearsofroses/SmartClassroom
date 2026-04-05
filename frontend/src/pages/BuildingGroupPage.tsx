@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { useAuthStore } from '../store/auth'
 import { ChevronLeft, DoorOpen, Radio, School, Search } from 'lucide-react'
 import { getBuildingsOverview } from '../services/api'
 import type { BuildingOverview } from '../types'
@@ -42,6 +43,8 @@ function isGroupKey(value: string): value is BuildingGroupKey {
 
 export function BuildingGroupPage(): JSX.Element {
   const { groupKey } = useParams<{ groupKey: string }>()
+  const currentRole = useAuthStore((state) => state.user?.role)
+  const isSystemAdmin = currentRole === 'SYSTEM_ADMIN'
 
   const [buildings, setBuildings] = useState<BuildingOverview[]>([])
   const [query, setQuery] = useState('')
@@ -104,10 +107,12 @@ export function BuildingGroupPage(): JSX.Element {
     return (
       <main className="page campus-bg">
         <section className="panel error-panel">Unknown building group. Please return to the group overview.</section>
-        <Link to="/" className="inline-link">
-          <ChevronLeft size={16} />
-          Back to Group Overview
-        </Link>
+        {!isSystemAdmin ? (
+          <Link to="/" className="inline-link">
+            <ChevronLeft size={16} />
+            Back to Group Overview
+          </Link>
+        ) : null}
       </main>
     )
   }
@@ -136,10 +141,12 @@ export function BuildingGroupPage(): JSX.Element {
       </header>
 
       <section className="panel group-tools-panel">
-        <Link to="/" className="inline-link">
-          <ChevronLeft size={16} />
-          Back to Group Overview
-        </Link>
+        {!isSystemAdmin ? (
+          <Link to="/" className="inline-link">
+            <ChevronLeft size={16} />
+            Back to Group Overview
+          </Link>
+        ) : null}
 
         <div>
           <label htmlFor="group-building-search" className="search-label">

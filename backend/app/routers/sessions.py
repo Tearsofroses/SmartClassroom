@@ -2,11 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from uuid import UUID
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, time
 import base64
 
 from app.database import get_db
-from app.models import ClassSession, Room, Teacher, Subject, BehaviorLog, RiskIncident, PerformanceAggregate, User
+from app.models import ClassSession, Room, Teacher, Subject, Timetable, BehaviorLog, RiskIncident, PerformanceAggregate, User
 from app.schemas.common import (
     SessionCreate, SessionResponse, SessionModeChange, 
     BehaviorIngest, SessionAnalyticsResponse,
@@ -59,6 +59,67 @@ def _ensure_session_permissions(
             status_code=403,
             detail=f"Insufficient permissions. Requires one of: {','.join(sorted(required_permissions))}",
         )
+
+
+def _parse_timetable_time(raw_value: object) -> Optional[time]:
+    if raw_value is None:
+        return None
+    if isinstance(raw_value, time):
+        return raw_value
+
+    value = str(raw_value).strip()
+    if not value:
+        return None
+
+    for fmt in ("%H:%M:%S", "%H:%M"):
+        try:
+            return datetime.strptime(value, fmt).time()
+        except ValueError:
+            continue
+    return None
+
+
+def _serialize_session_target(session: ClassSession, fallback_reason: str) -> dict:
+    building_id = None
+    if session.room and session.room.floor:
+        building_id = session.room.floor.building_id
+
+    return {
+        "session_id": session.id,
+        "room_id": session.room_id,
+        "room_code": session.room.room_code if session.room else None,
+        "building_id": building_id,
+        "mode": session.mode,
+        "fallback_reason": fallback_reason,
+        "start_time": session.start_time,
+    }
+
+
+def _serialize_session_summary(session: ClassSession, risk_alerts_count: int) -> dict:
+    return {
+        "id": session.id,
+        "room_id": session.room_id,
+        "room_code": session.room.room_code if session.room else None,
+        "teacher_id": session.teacher_id,
+        "teacher_name": session.teacher.name if session.teacher else None,
+        "subject_id": session.subject_id,
+        "subject_name": session.subject.name if session.subject else None,
+        "mode": session.mode,
+        "status": session.status,
+        "start_time": session.start_time,
+        "end_time": session.end_time,
+        "students_present": session.students_present or [],
+        "risk_alerts_count": risk_alerts_count,
+    }
+
+
+def _resolve_teacher_for_user(current_user: User, db: Session) -> Optional[Teacher]:
+    teacher = db.query(Teacher).filter(Teacher.user_id == current_user.id).first()
+    if teacher:
+        return teacher
+    if current_user.email:
+        return db.query(Teacher).filter(Teacher.email == current_user.email).first()
+    return None
 
 # =============================================================================
 # SESSION MANAGEMENT
@@ -162,6 +223,223 @@ async def list_sessions(
 
     return results
 
+
+@router.get("/sessions/me/room-context")
+async def get_tutor_room_context(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Resolve a fixed tutor room context and active sessions scoped to that room."""
+    _ensure_session_permissions(
+        current_user,
+        db,
+        {"dashboard:view_classroom", "dashboard:view_block", "dashboard:view_university", "dashboard:view_minimal"},
+    )
+    _ensure_session_role(current_user, {"LECTURER", "EXAM_PROCTOR"})
+
+    allowed_room_ids = get_user_room_scope(current_user, db)
+    if not allowed_room_ids:
+        return {
+            "building_id": None,
+            "floor_id": None,
+            "room_id": None,
+            "room_code": None,
+            "active_sessions": [],
+            "selected_session_id": None,
+            "selection_reason": "no_assigned_room",
+        }
+
+    rooms = (
+        db.query(Room)
+        .filter(Room.id.in_(allowed_room_ids))
+        .all()
+    )
+    if not rooms:
+        return {
+            "building_id": None,
+            "floor_id": None,
+            "room_id": None,
+            "room_code": None,
+            "active_sessions": [],
+            "selected_session_id": None,
+            "selection_reason": "no_assigned_room",
+        }
+
+    rooms_by_id = {room.id: room for room in rooms}
+    sorted_rooms = sorted(rooms, key=lambda room: room.room_code or "")
+    selected_room = sorted_rooms[0]
+    selection_reason = "first_assigned_room"
+
+    teacher = _resolve_teacher_for_user(current_user, db)
+    if teacher:
+        now_local = datetime.now()
+        now_weekday = now_local.weekday()
+        now_time = now_local.time()
+
+        timetable_slots = (
+            db.query(Timetable)
+            .filter(
+                Timetable.teacher_id == teacher.id,
+                Timetable.day_of_week == now_weekday,
+                Timetable.room_id.in_(allowed_room_ids),
+            )
+            .all()
+        )
+        for slot in timetable_slots:
+            slot_start = _parse_timetable_time(slot.start_time)
+            slot_end = _parse_timetable_time(slot.end_time)
+            if not slot_start or not slot_end:
+                continue
+            if slot_start <= now_time <= slot_end and slot.room_id in rooms_by_id:
+                selected_room = rooms_by_id[slot.room_id]
+                selection_reason = "timetable_room"
+                break
+
+    active_sessions = (
+        db.query(ClassSession)
+        .filter(
+            ClassSession.room_id == selected_room.id,
+            ClassSession.status == "ACTIVE",
+        )
+        .order_by(ClassSession.start_time.desc())
+        .all()
+    )
+
+    active_summaries = []
+    for active_session in active_sessions:
+        risk_alerts_count = (
+            db.query(RiskIncident)
+            .filter(RiskIncident.session_id == active_session.id)
+            .count()
+        )
+        active_summaries.append(_serialize_session_summary(active_session, risk_alerts_count))
+
+    selected_session_id = None
+    if teacher:
+        teacher_owned = next((session for session in active_sessions if session.teacher_id == teacher.id), None)
+        if teacher_owned:
+            selected_session_id = teacher_owned.id
+            selection_reason = "teacher_owned_active"
+
+    if selected_session_id is None and active_sessions:
+        selected_session_id = active_sessions[0].id
+        if selection_reason == "first_assigned_room":
+            selection_reason = "room_recent_active"
+
+    building_id = selected_room.floor.building_id if selected_room.floor else None
+
+    return {
+        "building_id": building_id,
+        "floor_id": selected_room.floor_id,
+        "room_id": selected_room.id,
+        "room_code": selected_room.room_code,
+        "active_sessions": active_summaries,
+        "selected_session_id": selected_session_id,
+        "selection_reason": selection_reason,
+    }
+
+
+@router.get("/sessions/me/current")
+async def get_current_session_target(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Resolve the best current session target for the authenticated user."""
+    _ensure_session_permissions(
+        current_user,
+        db,
+        {"dashboard:view_classroom", "dashboard:view_block", "dashboard:view_university", "dashboard:view_minimal"},
+    )
+
+    if current_user.role not in {"LECTURER", "EXAM_PROCTOR", "SYSTEM_ADMIN"}:
+        raise HTTPException(status_code=403, detail="Role cannot resolve session target")
+
+    room_scope = get_user_room_scope(current_user, db)
+    scoped_query = db.query(ClassSession).filter(ClassSession.status == "ACTIVE")
+
+    if current_user.role in {"LECTURER", "EXAM_PROCTOR"}:
+        if not room_scope:
+            return {
+                "session_id": None,
+                "room_id": None,
+                "room_code": None,
+                "building_id": None,
+                "mode": None,
+                "fallback_reason": "none",
+                "start_time": None,
+            }
+        scoped_query = scoped_query.filter(ClassSession.room_id.in_(room_scope))
+
+    if current_user.role == "LECTURER":
+        teacher = _resolve_teacher_for_user(current_user, db)
+        if teacher:
+            now_local = datetime.now()
+            now_weekday = now_local.weekday()
+            now_time = now_local.time()
+
+            timetable_query = db.query(Timetable).filter(
+                Timetable.teacher_id == teacher.id,
+                Timetable.day_of_week == now_weekday,
+            )
+            if room_scope:
+                timetable_query = timetable_query.filter(Timetable.room_id.in_(room_scope))
+
+            for slot in timetable_query.all():
+                slot_start = _parse_timetable_time(slot.start_time)
+                slot_end = _parse_timetable_time(slot.end_time)
+                if not slot_start or not slot_end:
+                    continue
+                if not (slot_start <= now_time <= slot_end):
+                    continue
+
+                slot_session = (
+                    scoped_query.filter(
+                        ClassSession.teacher_id == teacher.id,
+                        ClassSession.room_id == slot.room_id,
+                    )
+                    .order_by(ClassSession.start_time.desc())
+                    .first()
+                )
+                if slot_session:
+                    return _serialize_session_target(slot_session, "timetable")
+
+                # Auto-create a session when timetable slot is active but no runtime session exists.
+                new_session = ClassSession(
+                    room_id=slot.room_id,
+                    teacher_id=slot.teacher_id,
+                    subject_id=slot.subject_id,
+                    timetable_id=slot.id,
+                    mode="NORMAL",
+                    status="ACTIVE",
+                    start_time=datetime.utcnow(),
+                )
+                db.add(new_session)
+                db.commit()
+                db.refresh(new_session)
+                return _serialize_session_target(new_session, "auto_created_from_timetable")
+
+            teacher_recent_active = (
+                scoped_query.filter(ClassSession.teacher_id == teacher.id)
+                .order_by(ClassSession.start_time.desc())
+                .first()
+            )
+            if teacher_recent_active:
+                return _serialize_session_target(teacher_recent_active, "recent_active")
+
+    recent_active = scoped_query.order_by(ClassSession.start_time.desc()).first()
+    if recent_active:
+        return _serialize_session_target(recent_active, "recent_active")
+
+    return {
+        "session_id": None,
+        "room_id": None,
+        "room_code": None,
+        "building_id": None,
+        "mode": None,
+        "fallback_reason": "none",
+        "start_time": None,
+    }
+
 @router.get("/sessions/{session_id}", response_model=SessionResponse)
 async def get_session(
     session_id: UUID,
@@ -189,7 +467,7 @@ async def change_session_mode(
     db: Session = Depends(get_db)
 ):
     """Switch session between NORMAL and TESTING mode"""
-    _ensure_session_role(current_user, {"EXAM_PROCTOR", "SYSTEM_ADMIN"})
+    _ensure_session_role(current_user, {"LECTURER", "SYSTEM_ADMIN"})
 
     session = db.query(ClassSession).filter(ClassSession.id == session_id).first()
     if not session:
