@@ -145,9 +145,13 @@ select {
   margin-bottom: 12px;
 }
 
-.group-tools-panel input {
+.building-search-control {
   width: 100%;
-  min-width: 360px;
+}
+
+.building-search-control input {
+  width: 100%;
+  min-width: 520px;
 }
 
 .building-grid {
@@ -862,7 +866,7 @@ textarea {
     grid-template-columns: 1fr;
   }
 
-  .group-tools-panel input {
+  .building-search-control input {
     min-width: 0;
   }
 

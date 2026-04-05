@@ -560,7 +560,7 @@ export function BuildingsOverviewPage(): JSX.Element {
         </div>
       </header>
 
-      <section className="panel search-panel">
+      <section className="panel search-panel building-search-control">
         <label htmlFor="building-search" className="search-label">
           <Search size={16} />
           Search groups by building name, code, or location

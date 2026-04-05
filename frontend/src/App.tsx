@@ -72,7 +72,9 @@ function AuthenticatedLayout(): JSX.Element {
   }
 
   const isLecturerOrProctor = user?.role === 'LECTURER' || user?.role === 'EXAM_PROCTOR'
-  const showBack = location.pathname !== '/' && !isLecturerOrProctor
+  const isStudentLanding = user?.role === 'STUDENT' && location.pathname === '/students/me/dashboard'
+  const isLecturerOrProctorLanding = isLecturerOrProctor && /^\/buildings\/[^/]+$/.test(location.pathname)
+  const showBack = location.pathname !== '/' && !isStudentLanding && !isLecturerOrProctorLanding
   const isSystemAdmin = user?.role === 'SYSTEM_ADMIN'
 
   return (

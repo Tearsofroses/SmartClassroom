@@ -140,26 +140,26 @@ export function BuildingGroupPage(): JSX.Element {
         </div>
       </header>
 
-      <section className="panel group-tools-panel">
-        {!isSystemAdmin ? (
+      {!isSystemAdmin ? (
+        <div style={{ marginBottom: '8px' }}>
           <Link to="/" className="inline-link">
             <ChevronLeft size={16} />
             Back to Group Overview
           </Link>
-        ) : null}
-
-        <div>
-          <label htmlFor="group-building-search" className="search-label">
-            <Search size={16} />
-            Search buildings in this group
-          </label>
-          <input
-            id="group-building-search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Type building code or name"
-          />
         </div>
+      ) : null}
+
+      <section className="panel search-panel building-search-control">
+        <label htmlFor="group-building-search" className="search-label">
+          <Search size={16} />
+          Search groups by building name, code, or location
+        </label>
+        <input
+          id="group-building-search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Type A1, B10, C4, LAB, location, or center name"
+        />
       </section>
 
       {isLoading && <section className="panel">Loading buildings...</section>}
