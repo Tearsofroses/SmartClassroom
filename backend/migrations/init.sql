@@ -442,6 +442,19 @@ CREATE TABLE IF NOT EXISTS room_occupancy (
   UNIQUE(room_id)
 );
 
+-- Room Sensor Readings (latest per room + sensor key)
+CREATE TABLE IF NOT EXISTS room_sensor_readings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+  sensor_key VARCHAR(50) NOT NULL,
+  value FLOAT NOT NULL,
+  unit VARCHAR(20),
+  source_topic VARCHAR(255),
+  captured_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(room_id, sensor_key)
+);
+
 -- ============================================================================
 -- 9. AUDIT LOG (For tracking all changes)
 -- ============================================================================
@@ -558,6 +571,9 @@ CREATE INDEX idx_refresh_interval_settings_scope ON refresh_interval_settings(sc
 CREATE INDEX idx_iot_rules_room_id ON iot_rules(room_id);
 CREATE INDEX idx_performance_weights_subject_id ON performance_weights(subject_id);
 CREATE INDEX idx_room_occupancy_room_id ON room_occupancy(room_id);
+CREATE INDEX idx_room_sensor_readings_room_id ON room_sensor_readings(room_id);
+CREATE INDEX idx_room_sensor_readings_sensor_key ON room_sensor_readings(sensor_key);
+CREATE INDEX idx_room_sensor_readings_captured_at ON room_sensor_readings(captured_at);
 CREATE INDEX idx_audit_logs_entity_id ON audit_logs(entity_id);
 CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
 

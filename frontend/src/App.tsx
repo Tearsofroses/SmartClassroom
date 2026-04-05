@@ -71,7 +71,8 @@ function AuthenticatedLayout(): JSX.Element {
     navigate('/login', { replace: true })
   }
 
-  const showBack = location.pathname !== '/'
+  const isLecturerOrProctor = user?.role === 'LECTURER' || user?.role === 'EXAM_PROCTOR'
+  const showBack = location.pathname !== '/' && !isLecturerOrProctor
   const isSystemAdmin = user?.role === 'SYSTEM_ADMIN'
 
   return (
@@ -82,26 +83,26 @@ function AuthenticatedLayout(): JSX.Element {
             {showBack ? (
               <button
                 type="button"
-                className="inline-link inline-link-button auth-topbar-back"
                 onClick={() => navigate(-1)}
               >
                 Back
               </button>
             ) : null}
             <p className="auth-user">Signed in as {user?.username ?? 'Unknown'}</p>
+          </div>
+          <div className="auth-topbar-right">
             {isSystemAdmin ? (
               <button
                 type="button"
-                className="inline-link inline-link-button auth-topbar-back"
                 onClick={() => navigate('/admin/settings')}
               >
                 Admin Settings
               </button>
             ) : null}
+            <button type="button" onClick={handleLogout}>
+              Sign Out
+            </button>
           </div>
-          <button type="button" onClick={handleLogout}>
-            Sign Out
-          </button>
         </div>
       </header>
       <Outlet />

@@ -32,6 +32,7 @@ import {
   getRoomDevices,
   getLatestSessionFrame,
   getRoomDeviceStates,
+  getRoomSensorReadings,
   getRoomThresholds,
   getSessionAttendanceReport,
   getSessionAnalytics,
@@ -53,6 +54,7 @@ import type {
   Incident,
   LatestFrameResponse,
   RoomDeviceState,
+  RoomSensorReadingItem,
   RoomThresholdConfigItem,
   RoomDeviceInventoryItem,
   RoomSummary,
@@ -84,6 +86,16 @@ function ensureDataUri(value: string): string {
   return `data:image/jpeg;base64,${value}`
 }
 
+function formatSensorReading(value: number, unit?: string | null): string {
+  const normalizedUnit = unit?.trim() ?? ''
+  if (normalizedUnit.toLowerCase() === 'people') {
+    return `${Math.round(value)} people`
+  }
+
+  const normalizedValue = Number.isInteger(value) ? String(value) : value.toFixed(1)
+  return normalizedUnit ? `${normalizedValue} ${normalizedUnit}` : normalizedValue
+}
+
 export function BuildingDashboardPage(): JSX.Element {
   const { buildingId } = useParams<{ buildingId: string }>()
   const navigate = useNavigate()
@@ -96,6 +108,7 @@ export function BuildingDashboardPage(): JSX.Element {
   const [latestFrame, setLatestFrame] = useState<LatestFrameResponse | null>(null)
   const [deviceStates, setDeviceStates] = useState<RoomDeviceState[]>([])
   const [deviceInventory, setDeviceInventory] = useState<DeviceInventoryWithRoom[]>([])
+  const [roomSensorReadings, setRoomSensorReadings] = useState<RoomSensorReadingItem[]>([])
   const [deviceTypes, setDeviceTypes] = useState<DeviceTypeItem[]>([])
   const [globalThresholds, setGlobalThresholds] = useState<ThresholdConfigItem[]>([])
   const [roomThresholds, setRoomThresholds] = useState<RoomThresholdConfigItem[]>([])
@@ -125,11 +138,12 @@ export function BuildingDashboardPage(): JSX.Element {
   const [editingDeviceFrontBack, setEditingDeviceFrontBack] = useState<'FRONT' | 'BACK'>('FRONT')
   const [editingDeviceLeftRight, setEditingDeviceLeftRight] = useState<'LEFT' | 'RIGHT'>('LEFT')
   const [editingDevicePower, setEditingDevicePower] = useState<string>('0')
-  const [facilityCrudRoomId, setFacilityCrudRoomId] = useState<string>('')
   const [deviceSearch, setDeviceSearch] = useState<string>('')
   const [deviceTypeFilter, setDeviceTypeFilter] = useState<string>('ALL')
   const [deviceLocationFilter, setDeviceLocationFilter] = useState<string>('ALL')
   const [deviceCrudPanelView, setDeviceCrudPanelView] = useState<DeviceCrudPanelView>('CRUD')
+  const [isAddingDevice, setIsAddingDevice] = useState(false)
+  const [createDeviceMessage, setCreateDeviceMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const [isStructureLoading, setIsStructureLoading] = useState(true)
   const [isLiveLoading, setIsLiveLoading] = useState(true)
@@ -140,9 +154,12 @@ export function BuildingDashboardPage(): JSX.Element {
   const isTutorDashboard = currentRole === 'LECTURER'
   const isProctorDashboard = currentRole === 'EXAM_PROCTOR'
   const isFacilityDashboard = currentRole === 'FACILITY_STAFF'
+  const isCleaningStaffDashboard = currentRole === 'CLEANING_STAFF'
+  const isOperationsDashboard = isFacilityDashboard || isCleaningStaffDashboard
   const isScopedClassroomDashboard = isTutorDashboard || isProctorDashboard
 
   const canManageDevices = hasAny([PERMISSIONS.DEVICE_MANAGEMENT, PERMISSIONS.SYSTEM_SETTINGS])
+  const canOnlyToggleDevices = isCleaningStaffDashboard && !canManageDevices
   const canToggleDevices =
     canManageDevices ||
     hasAny([PERMISSIONS.ENV_LIGHT, PERMISSIONS.ENV_AC, PERMISSIONS.ENV_FAN]) ||
@@ -165,6 +182,8 @@ export function BuildingDashboardPage(): JSX.Element {
     PERMISSIONS.INCIDENT_AUDIT,
     PERMISSIONS.ALERT_ACKNOWLEDGE,
   ])
+  const isSystemAdmin = currentRole === 'SYSTEM_ADMIN'
+  const shouldShowWorkspace = !isSystemAdmin || Boolean(selectedSessionId)
 
   useEffect(() => {
     if (isProctorDashboard && modeFilter !== 'TESTING') {
@@ -173,15 +192,22 @@ export function BuildingDashboardPage(): JSX.Element {
   }, [isProctorDashboard, modeFilter])
 
   useEffect(() => {
-    if (isFacilityDashboard && dashboardView !== 'DEVICES') {
+    if (isOperationsDashboard && dashboardView !== 'DEVICES') {
       setDashboardView('DEVICES')
     }
-  }, [dashboardView, isFacilityDashboard])
+  }, [dashboardView, isOperationsDashboard])
 
   const filteredRooms = useMemo(() => {
     if (selectedFloorId === 'ALL') return rooms
     return rooms.filter((room) => room.floor_id === selectedFloorId)
   }, [rooms, selectedFloorId])
+
+  useEffect(() => {
+    if (!isCleaningStaffDashboard || selectedRoomId !== 'ALL' || filteredRooms.length === 0) {
+      return
+    }
+    setSelectedRoomId(filteredRooms[0].id)
+  }, [filteredRooms, isCleaningStaffDashboard, selectedRoomId])
 
   const selectedFloor = useMemo(
     () => (selectedFloorId === 'ALL' ? null : floors.find((floor) => floor.id === selectedFloorId) ?? null),
@@ -221,27 +247,33 @@ export function BuildingDashboardPage(): JSX.Element {
 
   const targetCrudRoom = useMemo(() => {
     if (!isFacilityDashboard) return selectedRoom
-    if (selectedRoomId !== 'ALL') return selectedRoom
-    if (!facilityCrudRoomId) return null
-    return rooms.find((room) => room.id === facilityCrudRoomId) ?? null
-  }, [facilityCrudRoomId, isFacilityDashboard, rooms, selectedRoom, selectedRoomId])
+    if (selectedRoomId === 'ALL') return null
+    return selectedRoom
+  }, [isFacilityDashboard, selectedRoom, selectedRoomId])
 
-  useEffect(() => {
-    if (!isFacilityDashboard || selectedRoomId !== 'ALL') {
-      setFacilityCrudRoomId('')
-      return
+  const sensorReadingByDeviceType = useMemo(() => {
+    const byKey = new Map<string, RoomSensorReadingItem>()
+    roomSensorReadings.forEach((reading) => {
+      byKey.set(reading.sensor_key.toUpperCase(), reading)
+    })
+
+    const readingFor = (keys: string[]): string => {
+      for (const key of keys) {
+        const row = byKey.get(key)
+        if (row) {
+          return formatSensorReading(row.value, row.unit)
+        }
+      }
+      return '-'
     }
 
-    const scopedRooms = selectedFloorId === 'ALL' ? rooms : filteredRooms
-    if (scopedRooms.length === 0) {
-      setFacilityCrudRoomId('')
-      return
+    return {
+      LIGHT: readingFor(['OCCUPANCY']),
+      AC: readingFor(['TEMPERATURE', 'TEMP']),
+      FAN: readingFor(['HUMIDITY']),
+      CAMERA: '-',
     }
-
-    if (!facilityCrudRoomId || !scopedRooms.some((room) => room.id === facilityCrudRoomId)) {
-      setFacilityCrudRoomId(scopedRooms[0].id)
-    }
-  }, [facilityCrudRoomId, filteredRooms, isFacilityDashboard, rooms, selectedFloorId, selectedRoomId])
+  }, [roomSensorReadings])
 
   useEffect(() => {
     let isMounted = true
@@ -400,7 +432,7 @@ export function BuildingDashboardPage(): JSX.Element {
           const hasSelectedSession = buildingSessionData.some((session) => session.id === selectedSessionId)
           nextSessionId = hasSelectedSession
             ? selectedSessionId
-            : (buildingSessionData[0]?.id ?? '')
+            : (isSystemAdmin ? '' : (buildingSessionData[0]?.id ?? ''))
         }
 
         if (nextSessionId !== selectedSessionId) {
@@ -442,10 +474,11 @@ export function BuildingDashboardPage(): JSX.Element {
         }
 
         if (effectiveRoomId !== 'ALL') {
-          const [roomDeviceData, roomInventoryData, roomThresholdData] = await Promise.all([
+          const [roomDeviceData, roomInventoryData, roomThresholdData, sensorReadingsData] = await Promise.all([
             getRoomDeviceStates(effectiveRoomId),
             getRoomDevices(effectiveRoomId),
             getRoomThresholds(effectiveRoomId),
+            getRoomSensorReadings(effectiveRoomId),
           ])
           if (!isMounted) return
           setDeviceStates(roomDeviceData.device_states)
@@ -457,6 +490,7 @@ export function BuildingDashboardPage(): JSX.Element {
             })),
           )
           setRoomThresholds(roomThresholdData)
+          setRoomSensorReadings(sensorReadingsData.readings)
 
           const nextDraft: Record<string, { min: string; max: string; target: string; enabled: boolean }> = {}
           roomThresholdData.forEach((item) => {
@@ -499,11 +533,13 @@ export function BuildingDashboardPage(): JSX.Element {
           setDeviceStates(mergedStates)
           setDeviceInventory(mergedInventory)
           setRoomThresholds([])
+          setRoomSensorReadings([])
           setThresholdDraft({})
         } else {
           setDeviceStates([])
           setDeviceInventory([])
           setRoomThresholds([])
+          setRoomSensorReadings([])
           setThresholdDraft({})
         }
 
@@ -898,18 +934,19 @@ export function BuildingDashboardPage(): JSX.Element {
   async function handleAddDevice(): Promise<void> {
     const room = targetCrudRoom ?? selectedRoom
     if (!room) {
-      setError('Select a room before creating a device.')
+      setCreateDeviceMessage({ type: 'error', text: 'Select a room before creating a device.' })
       return
     }
     if (!canManageDevices) {
-      setError('You do not have permission to add devices.')
+      setCreateDeviceMessage({ type: 'error', text: 'You do not have permission to add devices.' })
       return
     }
     if (!newDevice.location_front_back || !newDevice.location_left_right) {
-      setError('Location axis values are required to add a device.')
+      setCreateDeviceMessage({ type: 'error', text: 'Location axis values are required to add a device.' })
       return
     }
 
+    setIsAddingDevice(true)
     try {
       await addRoomDevice(room.id, {
         device_type: newDevice.device_type,
@@ -923,9 +960,16 @@ export function BuildingDashboardPage(): JSX.Element {
         location_left_right: 'LEFT',
         power_consumption_watts: 0,
       })
+      setCreateDeviceMessage({ type: 'success', text: `Device created successfully in ${room.room_code}` })
+      setTimeout(() => setCreateDeviceMessage(null), 3000)
       await refreshDevices(room.id)
     } catch (createError) {
-      setError(createError instanceof Error ? createError.message : 'Failed to add device')
+      setCreateDeviceMessage({ 
+        type: 'error', 
+        text: createError instanceof Error ? createError.message : 'Failed to add device'
+      })
+    } finally {
+      setIsAddingDevice(false)
     }
   }
 
@@ -1053,6 +1097,18 @@ export function BuildingDashboardPage(): JSX.Element {
     }
   }
 
+  function handleSelectSession(session: SessionSummary): void {
+    setSelectedSessionId(session.id)
+
+    const sessionRoom = rooms.find((room) => room.id === session.room_id)
+    if (sessionRoom) {
+      setSelectedRoomId(sessionRoom.id)
+      setSelectedFloorId(sessionRoom.floor_id)
+    } else {
+      setSelectedRoomId(session.room_id)
+    }
+  }
+
   async function handleEndSession(): Promise<void> {
     if (!selectedSessionId) return
     if (!canEndSession) {
@@ -1075,8 +1131,75 @@ export function BuildingDashboardPage(): JSX.Element {
     )
   }
 
+  if (isSystemAdmin && !shouldShowWorkspace) {
+    return (
+      <main className="page campus-bg admin-sessions-page">
+        <section className="panel">
+          <div className="section-title-row">
+            <h2>Sessions Table</h2>
+            <span>{visibleSessions.length} records</span>
+          </div>
+
+          {(isStructureLoading || isLiveLoading) && <section className="panel">Refreshing dashboard data...</section>}
+          {error && <section className="panel error-panel">{error}</section>}
+
+          <div className="table-scroll">
+            <table className="ratio-table sessions-ratio-table">
+              <colgroup>
+                <col className="col-room" />
+                <col className="col-mode" />
+                <col className="col-status" />
+                <col className="col-start" />
+                <col className="col-risk" />
+                <col className="col-detail" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Room</th>
+                  <th>Mode</th>
+                  <th>Status</th>
+                  <th>Start Time</th>
+                  <th>Risk Alerts</th>
+                  <th>Detail</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleSessions.map((session) => (
+                  <tr
+                    key={session.id}
+                    className="clickable-row"
+                    onClick={() => handleSelectSession(session)}
+                  >
+                    <td>{session.room_code || '-'}</td>
+                    <td>{session.mode}</td>
+                    <td>{session.status}</td>
+                    <td>{toLocalDateTime(session.start_time)}</td>
+                    <td>{session.risk_alerts_count}</td>
+                    <td>
+                      <div className="row-actions">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            handleSelectSession(session)
+                          }}
+                        >
+                          Open
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
   return (
-    <main className="page split-layout campus-bg">
+    <main className={`page split-layout campus-bg${isCleaningStaffDashboard ? ' cleaning-staff-dashboard' : ''}`}>
       <aside className="left-sidebar panel">
         <div className="sidebar-header">
           <h1>Building Dashboard</h1>
@@ -1127,7 +1250,7 @@ export function BuildingDashboardPage(): JSX.Element {
             onChange={(event) => setDashboardView(event.target.value as DashboardView)}
           >
             <option value="DEVICES">Device Main Screen</option>
-            {!isFacilityDashboard ? <option value="MODE">Mode Info Screen</option> : null}
+            {!isOperationsDashboard ? <option value="MODE">Mode Info Screen</option> : null}
           </select>
         </div>
 
@@ -1174,42 +1297,46 @@ export function BuildingDashboardPage(): JSX.Element {
         {(isStructureLoading || isLiveLoading) && <section className="panel">Refreshing dashboard data...</section>}
         {error && <section className="panel error-panel">{error}</section>}
 
-        <section className="panel kpi-row">
-          <article className="kpi-tile danger">
-            <AlertTriangle size={18} />
-            <div>
-              <p>Unreviewed Alerts</p>
-              <strong>{unreviewedCount}</strong>
-            </div>
-          </article>
-          <article className="kpi-tile warn">
-            <School size={18} />
-            <div>
-              <p>Active Sessions</p>
-              <strong>{visibleSessions.length}</strong>
-            </div>
-          </article>
-          <article className="kpi-tile safe">
-            <Monitor size={18} />
-            <div>
-              <p>Room Devices</p>
-              <strong>{deviceStates.length}</strong>
-            </div>
-          </article>
-        </section>
+        {!isCleaningStaffDashboard ? (
+          <section className="panel kpi-row">
+            <article className="kpi-tile danger">
+              <AlertTriangle size={18} />
+              <div>
+                <p>Unreviewed Alerts</p>
+                <strong>{unreviewedCount}</strong>
+              </div>
+            </article>
+            <article className="kpi-tile warn">
+              <School size={18} />
+              <div>
+                <p>Active Sessions</p>
+                <strong>{visibleSessions.length}</strong>
+              </div>
+            </article>
+            <article className="kpi-tile safe">
+              <Monitor size={18} />
+              <div>
+                <p>Room Devices</p>
+                <strong>{deviceStates.length}</strong>
+              </div>
+            </article>
+          </section>
+        ) : null}
 
         <section className="panel">
-          {isFacilityDashboard ? (
+          {isOperationsDashboard ? (
             <>
               <div className="section-title-row">
-                <h2>Device Operations Table</h2>
-                <span>{facilityDeviceGroups.length} rooms / {filteredDevices.length} devices</span>
+                <div>
+                  <h2>Device Operations Table</h2>
+                  <span>{facilityDeviceGroups.length} rooms / {filteredDevices.length} devices</span>
+                </div>
               </div>
               <p className="muted">
                 Room filter: {selectedRoomId === 'ALL' ? 'All rooms in current building scope' : selectedRoom?.room_code ?? 'No room selected'}
               </p>
 
-              {facilityDeviceGroups.length > 0 ? (
+              {facilityDeviceGroups.length > 0 && (
                 <div className="facility-room-groups">
                   {facilityDeviceGroups.map((group) => (
                     <article key={group.room_id} className="room-device-group panel">
@@ -1225,9 +1352,9 @@ export function BuildingDashboardPage(): JSX.Element {
                               <th>Device</th>
                               <th>Type</th>
                               <th>Location</th>
-                              <th>Power (W)</th>
+                              {!canOnlyToggleDevices ? <th>Power (W)</th> : null}
                               <th>Status</th>
-                              <th>Last Updated</th>
+                              {!canOnlyToggleDevices ? <th>Last Updated</th> : null}
                               <th>Actions</th>
                             </tr>
                           </thead>
@@ -1240,7 +1367,7 @@ export function BuildingDashboardPage(): JSX.Element {
                                   <td>{device.device_id}</td>
                                   <td>{device.device_type}</td>
                                   <td>
-                                    {isEditing ? (
+                                    {!canOnlyToggleDevices && isEditing ? (
                                       <div className="inline-filters">
                                         <select
                                           value={editingDeviceFrontBack}
@@ -1265,22 +1392,24 @@ export function BuildingDashboardPage(): JSX.Element {
                                       device.location
                                     )}
                                   </td>
-                                  <td>
-                                    {isEditing ? (
-                                      <input
-                                        type="number"
-                                        min={0}
-                                        value={editingDevicePower}
-                                        onChange={(event) => setEditingDevicePower(event.target.value)}
-                                      />
-                                    ) : (
-                                      device.power_consumption_watts ?? 0
-                                    )}
-                                  </td>
+                                  {!canOnlyToggleDevices ? (
+                                    <td>
+                                      {isEditing ? (
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          value={editingDevicePower}
+                                          onChange={(event) => setEditingDevicePower(event.target.value)}
+                                        />
+                                      ) : (
+                                        device.power_consumption_watts ?? 0
+                                      )}
+                                    </td>
+                                  ) : null}
                                   <td>
                                     <span className={`device-status ${isOn ? 'on' : 'off'}`}>{isOn ? 'ON' : 'OFF'}</span>
                                   </td>
-                                  <td>{toLocalDateTime(device.last_updated ?? null)}</td>
+                                  {!canOnlyToggleDevices ? <td>{toLocalDateTime(device.last_updated ?? null)}</td> : null}
                                   <td>
                                     <div className="row-actions">
                                       <button
@@ -1292,30 +1421,34 @@ export function BuildingDashboardPage(): JSX.Element {
                                       >
                                         Toggle
                                       </button>
-                                      {isEditing ? (
-                                        <button
-                                          type="button"
-                                          onClick={() => void handleUpdateDevice(device.device_id, device.room_id)}
-                                          disabled={!canManageDevices}
-                                        >
-                                          Save
-                                        </button>
-                                      ) : (
-                                        <button
-                                          type="button"
-                                          onClick={() => openEditDevice(device)}
-                                          disabled={!canManageDevices}
-                                        >
-                                          Edit
-                                        </button>
-                                      )}
-                                      <button
-                                        type="button"
-                                        onClick={() => void handleDeleteDevice(device.device_id, device.room_id)}
-                                        disabled={!canManageDevices}
-                                      >
-                                        Delete
-                                      </button>
+                                      {!canOnlyToggleDevices ? (
+                                        <>
+                                          {isEditing ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => void handleUpdateDevice(device.device_id, device.room_id)}
+                                              disabled={!canManageDevices}
+                                            >
+                                              Save
+                                            </button>
+                                          ) : (
+                                            <button
+                                              type="button"
+                                              onClick={() => openEditDevice(device)}
+                                              disabled={!canManageDevices}
+                                            >
+                                              Edit
+                                            </button>
+                                          )}
+                                          <button
+                                            type="button"
+                                            onClick={() => void handleDeleteDevice(device.device_id, device.room_id)}
+                                            disabled={!canManageDevices}
+                                          >
+                                            Delete
+                                          </button>
+                                        </>
+                                      ) : null}
                                     </div>
                                   </td>
                                 </tr>
@@ -1327,9 +1460,79 @@ export function BuildingDashboardPage(): JSX.Element {
                     </article>
                   ))}
                 </div>
-              ) : (
-                <p className="muted">No devices in current scope.</p>
               )}
+
+              {!isCleaningStaffDashboard && selectedRoomId === 'ALL' ? (
+                <p className="muted">Select a specific room from the left sidebar to manage devices.</p>
+              ) : null}
+
+              {!isCleaningStaffDashboard && selectedRoomId !== 'ALL' ? (
+                <article className="panel device-subpanel">
+                  <div className="section-title-row">
+                    <h3>CRUD Activities Panel</h3>
+                    <span>{targetCrudRoom ? targetCrudRoom.room_code : 'Select room'}</span>
+                  </div>
+
+                  {createDeviceMessage && (
+                    <div className={`message-banner ${createDeviceMessage.type}`}>
+                      {createDeviceMessage.text}
+                    </div>
+                  )}
+
+                  <div className="device-create-grid">
+                    <select
+                      value={newDevice.device_type}
+                      onChange={(event) => setNewDevice((prev) => ({ ...prev, device_type: event.target.value }))}
+                    >
+                      <option value="LIGHT">LIGHT</option>
+                      <option value="AC">AC</option>
+                      <option value="FAN">FAN</option>
+                      <option value="CAMERA">CAMERA</option>
+                    </select>
+                    <select
+                      value={newDevice.location_front_back}
+                      onChange={(event) =>
+                        setNewDevice((prev) => ({
+                          ...prev,
+                          location_front_back: event.target.value as 'FRONT' | 'BACK',
+                        }))
+                      }
+                    >
+                      <option value="FRONT">FRONT</option>
+                      <option value="BACK">BACK</option>
+                    </select>
+                    <select
+                      value={newDevice.location_left_right}
+                      onChange={(event) =>
+                        setNewDevice((prev) => ({
+                          ...prev,
+                          location_left_right: event.target.value as 'LEFT' | 'RIGHT',
+                        }))
+                      }
+                    >
+                      <option value="LEFT">LEFT</option>
+                      <option value="RIGHT">RIGHT</option>
+                    </select>
+                    <input
+                      type="number"
+                      min={0}
+                      value={newDevice.power_consumption_watts ?? 0}
+                      onChange={(event) =>
+                        setNewDevice((prev) => ({ ...prev, power_consumption_watts: Number(event.target.value) }))
+                      }
+                      placeholder="Power (W)"
+                    />
+                    <button 
+                      type="button" 
+                      onClick={() => void handleAddDevice()} 
+                      disabled={!targetCrudRoom || !canManageDevices || isAddingDevice}
+                      className={isAddingDevice ? 'loading' : ''}
+                    >
+                      {isAddingDevice ? 'Creating...' : 'Create Device'}
+                    </button>
+                  </div>
+                </article>
+              ) : null}
             </>
           ) : (
             <>
@@ -1365,7 +1568,11 @@ export function BuildingDashboardPage(): JSX.Element {
                         className={selectedSessionId === session.id ? 'selected-row clickable-row' : 'clickable-row'}
                         onClick={() => {
                           if (isScopedClassroomDashboard) {
-                            setSelectedSessionId(session.id)
+                            handleSelectSession(session)
+                            return
+                          }
+                          if (isSystemAdmin) {
+                            handleSelectSession(session)
                             return
                           }
                           navigate(`/sessions/${session.id}`)
@@ -1383,13 +1590,17 @@ export function BuildingDashboardPage(): JSX.Element {
                               onClick={(event) => {
                                 event.stopPropagation()
                                 if (isScopedClassroomDashboard) {
-                                  setSelectedSessionId(session.id)
+                                  handleSelectSession(session)
+                                  return
+                                }
+                                if (isSystemAdmin) {
+                                  handleSelectSession(session)
                                   return
                                 }
                                 navigate(`/sessions/${session.id}`)
                               }}
                             >
-                              {isScopedClassroomDashboard ? 'Select' : 'Detail'}
+                              {isScopedClassroomDashboard || isSystemAdmin ? 'Select' : 'Detail'}
                             </button>
                           </div>
                         </td>
@@ -1404,7 +1615,7 @@ export function BuildingDashboardPage(): JSX.Element {
 
         {dashboardView === 'DEVICES' ? (
           <>
-            {!isFacilityDashboard ? (
+            {!isOperationsDashboard ? (
               <>
                 <section className="panel">
                   <div className="section-title-row">
@@ -1534,22 +1745,11 @@ export function BuildingDashboardPage(): JSX.Element {
                     <span>{targetCrudRoom ? targetCrudRoom.room_code : 'Select room'}</span>
                   </div>
 
-                  {isFacilityDashboard && selectedRoomId === 'ALL' ? (
-                    <div className="filter-group">
-                      <label htmlFor="facility-crud-room">CRUD target room</label>
-                      <select
-                        id="facility-crud-room"
-                        value={facilityCrudRoomId}
-                        onChange={(event) => setFacilityCrudRoomId(event.target.value)}
-                      >
-                        {(selectedFloorId === 'ALL' ? rooms : filteredRooms).map((room) => (
-                          <option key={room.id} value={room.id}>
-                            {room.room_code} {room.name ?? ''}
-                          </option>
-                        ))}
-                      </select>
+                  {createDeviceMessage && (
+                    <div className={`message-banner ${createDeviceMessage.type}`}>
+                      {createDeviceMessage.text}
                     </div>
-                  ) : null}
+                  )}
 
                   <div className="device-create-grid">
                     <select
@@ -1594,8 +1794,13 @@ export function BuildingDashboardPage(): JSX.Element {
                       }
                       placeholder="Power (W)"
                     />
-                    <button type="button" onClick={() => void handleAddDevice()} disabled={!targetCrudRoom || !canManageDevices}>
-                      Create Device
+                    <button 
+                      type="button" 
+                      onClick={() => void handleAddDevice()} 
+                      disabled={!targetCrudRoom || !canManageDevices || isAddingDevice}
+                      className={isAddingDevice ? 'loading' : ''}
+                    >
+                      {isAddingDevice ? 'Creating...' : 'Create Device'}
                     </button>
                   </div>
 
@@ -1720,6 +1925,7 @@ export function BuildingDashboardPage(): JSX.Element {
                       <thead>
                         <tr>
                           <th>Device Type</th>
+                          <th>Reading</th>
                           <th>Unit</th>
                           <th>Min</th>
                           <th>Max</th>
@@ -1747,6 +1953,7 @@ export function BuildingDashboardPage(): JSX.Element {
                           return (
                             <tr key={typeItem.code}>
                               <td>{typeItem.display_name}</td>
+                              <td>{sensorReadingByDeviceType[typeItem.code as keyof typeof sensorReadingByDeviceType] ?? '-'}</td>
                               <td>{typeItem.unit ?? '-'}</td>
                               <td>
                                 <input

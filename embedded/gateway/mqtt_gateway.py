@@ -84,18 +84,19 @@ def on_message(client, userdata, msg):
         if topic == Topics.TEMPERATURE and data:
             value = data.get("value", 0.0)
             controller.on_temperature(value)
-            update_device_state_in_backend("dht20_temp", "SENSOR", value)
+            upsert_sensor_reading_in_backend("TEMPERATURE", value, data.get("unit", "C"), topic)
 
         elif topic == Topics.HUMIDITY and data:
             value = data.get("value", 0.0)
             controller.on_humidity(value)
-            update_device_state_in_backend("dht20_humidity", "SENSOR", value)
+            upsert_sensor_reading_in_backend("HUMIDITY", value, data.get("unit", "%"), topic)
 
         elif topic == Topics.OCCUPANCY and data:
             count = data.get("count", 0)
             detected = data.get("detected", False)
             controller.on_occupancy(count, detected)
             update_occupancy_in_backend(count, detected)
+            upsert_sensor_reading_in_backend("OCCUPANCY", float(count), "people", topic)
 
         # ─── Heartbeats ──────────────────────────────
         elif topic == Topics.HEARTBEAT and data:
@@ -126,24 +127,25 @@ def on_message(client, userdata, msg):
 #  Backend API Integration
 # ═══════════════════════════════════════════════════════════
 
-def update_device_state_in_backend(device_id: str, device_type: str, value):
-    """Update device state in the backend database."""
+def upsert_sensor_reading_in_backend(sensor_key: str, value: float, unit: str | None, source_topic: str):
+    """Upsert latest room-scoped sensor reading in the backend database."""
     if not room_config.room_id:
         return
 
     try:
-        url = f"{backend_config.api_url}/devices/{device_id}/toggle"
-        params = {"room_id": room_config.room_id}
+        url = f"{backend_config.api_url}/rooms/{room_config.room_id}/sensor-readings/{sensor_key}"
         data = {
-            "action": "ON" if value else "OFF",
+            "value": value,
+            "unit": unit,
+            "source_topic": source_topic,
         }
-        resp = requests.post(url, params=params, json=data, timeout=5)
+        resp = requests.put(url, json=data, timeout=5)
         if resp.status_code == 200:
-            logger.debug(f"Backend updated: {device_id} = {value}")
+            logger.debug(f"Sensor reading updated: {sensor_key}={value} {unit or ''}")
         else:
-            logger.warning(f"Backend update failed ({resp.status_code}): {resp.text[:100]}")
+            logger.warning(f"Sensor update failed ({resp.status_code}): {resp.text[:100]}")
     except requests.RequestException as e:
-        logger.error(f"Backend connection error: {e}")
+        logger.error(f"Backend sensor connection error: {e}")
 
 
 def update_occupancy_in_backend(count: int, detected: bool):

@@ -191,6 +191,20 @@ export interface RoomDeviceStatusAll {
   device_states: RoomDeviceState[]
 }
 
+export interface RoomSensorReadingItem {
+  sensor_key: string
+  value: number
+  unit: string | null
+  source_topic: string | null
+  captured_at: string
+}
+
+export interface RoomSensorReadingsResponse {
+  room_id: string
+  room_code: string | null
+  readings: RoomSensorReadingItem[]
+}
+
 export interface RoomDeviceInventoryItem {
   device_id: string
   device_type: string

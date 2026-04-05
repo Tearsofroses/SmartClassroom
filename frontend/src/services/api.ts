@@ -26,6 +26,7 @@ import type {
   RoomDeviceInventoryResponse,
   RoomThresholdConfigItem,
   RoomDeviceStatusAll,
+  RoomSensorReadingsResponse,
   RoomSummary,
   SessionAnalytics,
   SessionSummary,
@@ -248,6 +249,11 @@ export async function reviewIncident(incidentId: string, payload: IncidentReview
 
 export async function getRoomDeviceStates(roomId: string): Promise<RoomDeviceStatusAll> {
   const { data } = await api.get<RoomDeviceStatusAll>(`/rooms/${roomId}/devices/status/all`)
+  return data
+}
+
+export async function getRoomSensorReadings(roomId: string): Promise<RoomSensorReadingsResponse> {
+  const { data } = await api.get<RoomSensorReadingsResponse>(`/rooms/${roomId}/sensor-readings/latest`)
   return data
 }
 

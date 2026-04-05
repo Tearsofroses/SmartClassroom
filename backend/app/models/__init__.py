@@ -52,6 +52,7 @@ class Room(Base):
     room_devices = relationship("RoomDevice", back_populates="room", cascade="all, delete-orphan")
     device_thresholds = relationship("RoomDeviceThreshold", back_populates="room", cascade="all, delete-orphan")
     occupancy = relationship("RoomOccupancy", back_populates="room", uselist=False, cascade="all, delete-orphan")
+    sensor_readings = relationship("RoomSensorReading", back_populates="room", cascade="all, delete-orphan")
 
 class Subject(Base):
     __tablename__ = "subjects"
@@ -395,6 +396,22 @@ class RoomOccupancy(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     
     room = relationship("Room", back_populates="occupancy")
+
+
+class RoomSensorReading(Base):
+    __tablename__ = "room_sensor_readings"
+    __table_args__ = (UniqueConstraint("room_id", "sensor_key", name="uq_room_sensor_key"),)
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    room_id = Column(UUID(as_uuid=True), ForeignKey("rooms.id"), nullable=False, index=True)
+    sensor_key = Column(String(50), nullable=False, index=True)
+    value = Column(Float, nullable=False)
+    unit = Column(String(20))
+    source_topic = Column(String(255))
+    captured_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    room = relationship("Room", back_populates="sensor_readings")
 
 # =============================================================================
 # 6. CONFIGURATION MODELS
