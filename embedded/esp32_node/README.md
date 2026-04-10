@@ -5,11 +5,11 @@
 | Component | Quantity | Purpose |
 |-----------|----------|---------|
 | ESP32 DevKit V1 | 1 | Main controller |
-| DHT22 Sensor (1-Wire) | 1 | Temperature & humidity |
+| DHT20 Sensor (I2C) | 1 | Temperature & humidity |
 | Analog Light Sensor (LDR)| 1 | Ambient light level |
 | 4-Channel Relay Module (5V, Active LOW) | 1 | Device control |
 | 16x2 I2C LCD Display | 1 | Status display |
-| 5V Buzzer | 1 | Audio alerts |
+| Alert LED | 1 | Visual alerts |
 | Miniature LEDs or LED strips | 3 | Simulating zone lighting |
 | Miniature DC Fan (5V) | 1 | Simulating HVAC |
 | Breadboard + Jumper wires | — | Connections |
@@ -26,15 +26,16 @@ ESP32 DevKit V1
 │  GPIO 27 ──────── Relay CH3 IN ──── LED Zone 3
 │  GPIO 14 ──────── Relay CH4 IN ──── DC Fan 1
 │                          │
-│  GPIO 32 ──────── Buzzer (+)
-│  GND ─────────── Buzzer (-)
+│  GPIO 32 ──────── Alert LED (+)
+│  GND ─────────── Alert LED (-)
 │                          │
-│  GPIO 21 (SDA) ─── LCD SDA
-│  GPIO 22 (SCL) ─── LCD SCL
+│  GPIO 21 (SDA) ──┬─ LCD SDA
+│                  └─ DHT20 SDA
+│  GPIO 22 (SCL) ──┬─ LCD SCL
+│                  └─ DHT20 SCL
 │
-│  GPIO 4  ───────── DHT22 Data
-│  3.3V ──────────┬─ DHT22 VCC
-│  GND ───────────┴─ DHT22 GND  │
+│  3.3V ───────────── DHT20 VCC
+│  GND ────────────── DHT20 GND
 │                          │
 │  GPIO 34 ───────── Light Sensor (AO)
 │  3.3V ──────────── Light Sensor VCC
@@ -52,10 +53,10 @@ ESP32 DevKit V1
 ### Important Notes
 - **Relay module**: Most 4-channel relays are **Active LOW** — `LOW` signal = relay ON
 - **I2C bus**: LCD uses I2C bus (SDA=21, SCL=22)
-- **1-Wire bus**: DHT22 uses GPIO 4
+- **I2C devices**: DHT20 and LCD share the I2C bus (SDA=21, SCL=22)
 - **Light sensor**: Analog output connected to GPIO 34
 - **LCD address**: Default `0x27`. If it doesn't work, try `0x3F` (update in `config.h`)
-- **Power**: Use the 5V pin (VIN) for relay and LCD. DHT22 and Light Sensor run on 3.3V
+- **Power**: Use the 5V pin (VIN) for relay and LCD. DHT20 and Light Sensor run on 3.3V
 
 ## Software Setup
 
@@ -77,8 +78,7 @@ In **Sketch → Include Library → Manage Libraries**, install:
 | Library | Author | Version |
 |---------|--------|---------|
 | PubSubClient | Nick O'Leary | 2.8+ |
-| DHT sensor library | Adafruit | 1.4+ |
-| Adafruit Unified Sensor | Adafruit | 1.1+ |
+| DHT20 | RobTillaart | 0.2+ |
 | LiquidCrystal_I2C | Frank de Brabander | 1.1.2+ |
 | ArduinoJson | Benoit Blanchon | 6.x |
 
@@ -111,11 +111,11 @@ After flashing, the Serial Monitor should show:
 ╔══════════════════════════════════════╗
 ║  Smart AI-IoT Classroom - ESP32 Node ║
 ╚══════════════════════════════════════╝
-[SENSOR] DHT22 initialized
+[SENSOR] DHT20 initialized
 [SENSOR] Light sensor initialized
 [LCD] 16x2 LCD initialized
 [RELAY] 4-channel relay initialized (all OFF)
-[BUZZER] Buzzer initialized
+[ALERT LED] Alert LED initialized
 [WiFi] Connecting to YourWiFiName... Connected! IP: 192.168.1.200
 [MQTT] Connecting to broker... Connected!
 [MQTT] Subscribed to all control topics
@@ -130,8 +130,8 @@ docker exec doai_mosquitto mosquitto_sub -t "classroom/sensors/#" -v
 # Toggle relay CH1 (LED Zone 1)
 docker exec doai_mosquitto mosquitto_pub -t "classroom/actuators/relay/1" -m "ON"
 
-# Trigger buzzer
-docker exec doai_mosquitto mosquitto_pub -t "classroom/actuators/buzzer" -m "ALERT"
+# Trigger alert LED
+docker exec doai_mosquitto mosquitto_pub -t "classroom/actuators/alert_led" -m "ALERT"
 
 # Change mode
 docker exec doai_mosquitto mosquitto_pub -t "classroom/mode" -m "TESTING"
@@ -144,5 +144,5 @@ docker exec doai_mosquitto mosquitto_pub -t "classroom/mode" -m "TESTING"
 | WiFi won't connect | Verify SSID/password; ensure 2.4GHz (ESP32 doesn't support 5GHz) |
 | MQTT connection failed | Check broker IP; ensure Mosquitto is running; check port 1883 is open |
 | LCD shows nothing | Try address `0x3F`; check I2C wiring; run I2C scanner sketch |
-| DHT22 read error | Check Data pin wiring; ensure 3.3V power; check pull-up resistor (typically 10kΩ on Data to 3.3V) |
+| DHT20 read error | Check SDA/SCL pin wiring; ensure 3.3V power; check I2C pull-up resistors if needed |
 | Relay not switching | Verify Active LOW logic; check 5V power to relay VCC |

@@ -7,7 +7,7 @@ import json
 # CONFIGURATION
 # Match this to your ESP32's config.h
 # ==========================================
-MQTT_BROKER = "192.168.43.234" 
+MQTT_BROKER = "192.168.1.104" 
 MQTT_PORT = 1883
 
 TOPIC_TEMP   = "classroom/sensors/temperature"
@@ -18,7 +18,7 @@ TOPIC_ACTUATORS = [
     "classroom/actuators/relay/2",
     "classroom/actuators/relay/3",
     "classroom/actuators/relay/4",
-    "classroom/actuators/buzzer",
+    "classroom/actuators/alert_led",
 ]
 
 class SmartClassroomInterface:
@@ -58,7 +58,7 @@ class SmartClassroomInterface:
         # Create buttons
         self.buttons = []
         self.states = [False, False, False, False, False]
-        labels = ["LED Zone 1", "LED Zone 2", "LED Zone 3", "Fan", "Buzzer"]
+        labels = ["LED Zone 1", "LED Zone 2", "LED Zone 3", "Fan", "Alert LED"]
         
         for i in range(5):
             btn = tk.Button(
@@ -102,9 +102,9 @@ class SmartClassroomInterface:
     def toggle_actuator(self, idx):
         # Toggle mathematical state
         self.states[idx] = not self.states[idx]
-        new_state = "OFF" if self.states[idx] else "ON"
+        new_state = "ON" if self.states[idx] else "OFF"
         
-        labels = ["LED Zone 1", "LED Zone 2", "LED Zone 3", "Fan", "Buzzer"]
+        labels = ["LED Zone 1", "LED Zone 2", "LED Zone 3", "Fan", "Alert LED"]
         
         # Dynamic aesthetic colors (Green for ON, Grey/Dark for OFF)
         color_bg = "#A6E3A1" if self.states[idx] else "#45475A"
@@ -114,8 +114,13 @@ class SmartClassroomInterface:
         self.buttons[idx].config(text=f"{labels[idx]}: {new_state}", bg=color_bg, fg=color_fg)
         
         # Publish MQTT command directly to the node
-        # Inverting the payload because the physical relays operate oppositely (Active LOW or NC wiring)
-        mqtt_payload = "OFF" if self.states[idx] else "ON"
+        if idx < 4:
+            # Relay modules are hardware-inverted (or wired NC), sending "OFF" turns physical ON
+            mqtt_payload = "OFF" if self.states[idx] else "ON"
+        else:
+            # Alert LED behaves with standard logic
+            mqtt_payload = "ON" if self.states[idx] else "OFF"
+            
         self.client.publish(TOPIC_ACTUATORS[idx], mqtt_payload)
 
     def on_connect(self, client, userdata, flags, result_code, properties=None):
@@ -127,6 +132,11 @@ class SmartClassroomInterface:
             client.subscribe(TOPIC_TEMP)
             client.subscribe(TOPIC_HUM)
             client.subscribe(TOPIC_LIGHT)
+            
+            # Sync physical devices to match default dashboard OFF state
+            for idx in range(5):
+                initial_payload = "ON" if idx < 4 else "OFF"
+                client.publish(TOPIC_ACTUATORS[idx], initial_payload)
         else:
             self.root.after(0, lambda: self.lbl_status.config(text="❌ Failed to connect", fg="#F38BA8"))
 

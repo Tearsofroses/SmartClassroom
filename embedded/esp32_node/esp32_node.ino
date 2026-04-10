@@ -23,7 +23,7 @@
 
 #include "config.h"
 #include <ArduinoJson.h>
-#include <DHT.h>
+#include "DHT20.h"
 #include <LiquidCrystal_I2C.h>
 #include <PubSubClient.h>
 #include <WiFi.h>
@@ -32,7 +32,7 @@
 // ─── Global Objects ─────────────────────────────────────
 WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
-DHT dht(DHT_PIN, DHT_TYPE);
+DHT20 dht20;
 LiquidCrystal_I2C lcd(LCD_I2C_ADDR, LCD_COLS, LCD_ROWS);
 
 // ─── State Variables ────────────────────────────────────
@@ -58,9 +58,9 @@ void publishSensorData();
 void publishHeartbeat();
 void updateLCD();
 void setRelay(int channel, bool state);
-void triggerBuzzer(int repeats, int durationMs);
+void triggerAlertLed(int repeats, int durationMs);
 void handleRelayCommand(int channel, String command);
-void handleBuzzerCommand(String command);
+void handleAlertLedCommand(String command);
 void handleModeChange(String newMode);
 
 // ─── Setup ──────────────────────────────────────────────
@@ -74,9 +74,9 @@ void setup() {
   // Initialize I2C
   Wire.begin();
 
-  // Initialize DHT22
-  dht.begin();
-  Serial.println("[SENSOR] DHT22 initialized");
+  // Initialize DHT20
+  dht20.begin();
+  Serial.println("[SENSOR] DHT20 initialized");
 
   // Initialize LCD
   lcd.init();
@@ -95,10 +95,10 @@ void setup() {
   }
   Serial.println("[RELAY] 4-channel relay initialized (all OFF)");
 
-  // Initialize Buzzer
-  pinMode(BUZZER_PIN, OUTPUT);
-  digitalWrite(BUZZER_PIN, LOW);
-  Serial.println("[BUZZER] Buzzer initialized");
+  // Initialize Alert LED
+  pinMode(ALERT_LED_PIN, OUTPUT);
+  digitalWrite(ALERT_LED_PIN, LOW);
+  Serial.println("[ALERT LED] Alert LED initialized");
 
   // Initialize Light Sensor
   pinMode(LIGHT_SENSOR_PIN, INPUT);
@@ -110,8 +110,8 @@ void setup() {
   // Connect MQTT
   setupMQTT();
 
-  // Startup beep
-  triggerBuzzer(1, 100);
+  // Startup flash
+  triggerAlertLed(1, 100);
 
   Serial.println("[READY] System initialized successfully");
   lcdLine1 = "Mode: IDLE";
@@ -203,7 +203,7 @@ void reconnectMQTT() {
       mqtt.subscribe(TOPIC_RELAY_2);
       mqtt.subscribe(TOPIC_RELAY_3);
       mqtt.subscribe(TOPIC_RELAY_4);
-      mqtt.subscribe(TOPIC_BUZZER);
+      mqtt.subscribe(TOPIC_ALERT_LED);
       mqtt.subscribe(TOPIC_MODE);
       mqtt.subscribe(TOPIC_LCD_LINE1);
       mqtt.subscribe(TOPIC_LCD_LINE2);
@@ -246,9 +246,9 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
   } else if (topicStr == TOPIC_RELAY_4) {
     handleRelayCommand(4, message);
   }
-  // Handle buzzer
-  else if (topicStr == TOPIC_BUZZER) {
-    handleBuzzerCommand(message);
+  // Handle alert LED
+  else if (topicStr == TOPIC_ALERT_LED) {
+    handleAlertLedCommand(message);
   }
   // Handle mode change
   else if (topicStr == TOPIC_MODE) {
@@ -264,13 +264,11 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
 
 // ─── Sensor Reading ─────────────────────────────────────
 void readSensors() {
-  float t = dht.readTemperature();
-  float h = dht.readHumidity();
-
   int rawLight = analogRead(LIGHT_SENSOR_PIN);
   currentLight = (rawLight / 4095.0) * 100.0;
-  Serial.print("%  Light: ");
-  Serial.println(currentLight, 1);
+  Serial.print("[SENSOR] Light: ");
+  Serial.print(currentLight, 1);
+  Serial.println("%");
 
   if (currentLight >= 80.0) {
     setRelay(1, true);
@@ -278,9 +276,10 @@ void readSensors() {
     setRelay(3, true);
   }
 
-  if (!isnan(t) && !isnan(h)) {
-    currentTemp = t;
-    currentHumidity = h;
+  int status = dht20.read();
+  if (status == DHT20_OK) {
+    currentTemp = dht20.getTemperature();
+    currentHumidity = dht20.getHumidity();
 
     Serial.print("[SENSOR] Temp: ");
     Serial.print(currentTemp, 1);
@@ -288,7 +287,8 @@ void readSensors() {
     Serial.print(currentHumidity, 1);
     Serial.println("%");
   } else {
-    Serial.println("[SENSOR] DHT22 read error");
+    Serial.print("[SENSOR] DHT20 read error: ");
+    Serial.println(status);
   }
 }
 
@@ -380,24 +380,24 @@ void setRelay(int channel, bool state) {
   mqtt.publish(stateTopic.c_str(), state ? "ON" : "OFF");
 }
 
-// ─── Buzzer Control ─────────────────────────────────────
-void handleBuzzerCommand(String command) {
+// ─── Alert LED Control ──────────────────────────────────
+void handleAlertLedCommand(String command) {
   if (command == "ALERT" || command == "ON" || command == "1") {
-    Serial.println("[BUZZER] ALERT triggered!");
-    triggerBuzzer(BUZZER_ALERT_REPEAT, BUZZER_ALERT_DURATION_MS);
+    Serial.println("[ALERT LED] ALERT triggered!");
+    triggerAlertLed(ALERT_LED_REPEAT, ALERT_LED_DURATION_MS);
   } else if (command == "OFF" || command == "0") {
-    digitalWrite(BUZZER_PIN, LOW);
-    Serial.println("[BUZZER] OFF");
+    digitalWrite(ALERT_LED_PIN, LOW);
+    Serial.println("[ALERT LED] OFF");
   }
 }
 
-void triggerBuzzer(int repeats, int durationMs) {
+void triggerAlertLed(int repeats, int durationMs) {
   for (int i = 0; i < repeats; i++) {
-    digitalWrite(BUZZER_PIN, HIGH);
+    digitalWrite(ALERT_LED_PIN, HIGH);
     delay(durationMs);
-    digitalWrite(BUZZER_PIN, LOW);
+    digitalWrite(ALERT_LED_PIN, LOW);
     if (i < repeats - 1) {
-      delay(durationMs); // Gap between beeps
+      delay(durationMs); // Gap between flashes
     }
   }
 }
@@ -415,8 +415,8 @@ void handleModeChange(String newMode) {
 
   // Mode-specific actions
   if (currentMode == "TESTING") {
-    // Testing mode: alert beep
-    triggerBuzzer(2, 200);
+    // Testing mode: alert flash
+    triggerAlertLed(2, 200);
     lcdLine2 = "EXAM IN PROGRESS";
   } else if (currentMode == "NORMAL") {
     lcdLine2 = "Learning Active";
