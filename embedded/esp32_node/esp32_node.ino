@@ -115,7 +115,11 @@ void setup() {
 
   Serial.println("[READY] System initialized successfully");
   lcdLine1 = "Mode: IDLE";
-  lcdLine2 = "Connecting...";
+  if (mqtt.connected()) {
+    lcdLine2 = "auto";
+  } else {
+    lcdLine2 = "Connecting...";
+  }
 }
 
 // ─── Main Loop ──────────────────────────────────────────
@@ -209,7 +213,7 @@ void reconnectMQTT() {
       mqtt.subscribe(TOPIC_LCD_LINE2);
 
       Serial.println("[MQTT] Subscribed to all control topics");
-      lcdLine2 = "MQTT Connected";
+      lcdLine2 = "auto";
     } else {
       Serial.print(" Failed (rc=");
       Serial.print(mqtt.state());
