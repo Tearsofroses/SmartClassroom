@@ -262,7 +262,9 @@ CREATE TABLE IF NOT EXISTS risk_incidents (
 CREATE TABLE IF NOT EXISTS iot_rules (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   rule_name VARCHAR(255) NOT NULL,
-  room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+  scope_type VARCHAR(20) NOT NULL CHECK (scope_type IN ('GLOBAL', 'BUILDING', 'ROOM')),
+  building_id UUID REFERENCES buildings(id) ON DELETE CASCADE,
+  room_id UUID REFERENCES rooms(id) ON DELETE CASCADE,
   condition_type VARCHAR(50) NOT NULL, -- OCCUPANCY, TIMETABLE, ZERO_OCCUPANCY, TIME_BASED
   condition_params JSONB NOT NULL, -- {"min_occupancy": 1, "duration_minutes": 2}
   actions JSONB NOT NULL, -- [{"device_type": "AC", "action": "ON"}, ...]
@@ -270,7 +272,12 @@ CREATE TABLE IF NOT EXISTS iot_rules (
   priority INT DEFAULT 0,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
-  last_triggered TIMESTAMP
+  last_triggered TIMESTAMP,
+  CHECK (
+    (scope_type = 'GLOBAL' AND building_id IS NULL AND room_id IS NULL) OR
+    (scope_type = 'BUILDING' AND building_id IS NOT NULL AND room_id IS NULL) OR
+    (scope_type = 'ROOM' AND room_id IS NOT NULL AND building_id IS NULL)
+  )
 );
 
 -- Device States (Current real-time status of all devices)
@@ -576,6 +583,8 @@ CREATE INDEX idx_room_sensor_readings_sensor_key ON room_sensor_readings(sensor_
 CREATE INDEX idx_room_sensor_readings_captured_at ON room_sensor_readings(captured_at);
 CREATE INDEX idx_audit_logs_entity_id ON audit_logs(entity_id);
 CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
+CREATE INDEX idx_iot_rules_scope_type ON iot_rules(scope_type);
+CREATE INDEX idx_iot_rules_building_id ON iot_rules(building_id);
 
 -- RBAC Policy indexes
 CREATE INDEX idx_permissions_category ON permissions(category);

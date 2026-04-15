@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Body
+from sqlalchemy import and_, case, or_
 from sqlalchemy.orm import Session
 from uuid import UUID
 from typing import List, Optional
 from datetime import datetime
 
 from app.database import get_db
-from app.models import IoTRule, Room, User
+from app.models import IoTRule, Room, Floor, Building, User
 from app.schemas.common import IoTRuleCreate, IoTRuleUpdate, IoTRuleResponse
 from app.routers.auth import get_current_user, get_user_permissions
 
@@ -25,6 +26,52 @@ def _ensure_rule_permissions(current_user: User, db: Session, required_permissio
             detail=f"Insufficient permissions. Requires one of: {','.join(sorted(required_permissions))}",
         )
 
+
+def _get_room_and_building_ids(db: Session, room_id: UUID) -> tuple[Room, UUID]:
+    room = db.query(Room).filter(Room.id == room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    building_id = db.query(Floor.building_id).filter(Floor.id == room.floor_id).scalar()
+    if not building_id:
+        raise HTTPException(status_code=404, detail="Building not found for room")
+
+    return room, building_id
+
+
+def _scope_order_expression():
+    return case(
+        (IoTRule.scope_type == "GLOBAL", 0),
+        (IoTRule.scope_type == "BUILDING", 1),
+        (IoTRule.scope_type == "ROOM", 2),
+        else_=3,
+    )
+
+
+def _validate_rule_scope(scope_type: str, building_id: Optional[UUID], room_id: Optional[UUID], db: Session) -> None:
+    if scope_type == "GLOBAL":
+        if building_id is not None or room_id is not None:
+            raise HTTPException(status_code=400, detail="GLOBAL rules cannot set building_id or room_id")
+        return
+
+    if scope_type == "BUILDING":
+        if building_id is None or room_id is not None:
+            raise HTTPException(status_code=400, detail="BUILDING rules require building_id and must not set room_id")
+        building_exists = db.query(Building.id).filter(Building.id == building_id).first()
+        if not building_exists:
+            raise HTTPException(status_code=404, detail="Building not found")
+        return
+
+    if scope_type == "ROOM":
+        if room_id is None or building_id is not None:
+            raise HTTPException(status_code=400, detail="ROOM rules require room_id and must not set building_id")
+        room_exists = db.query(Room.id).filter(Room.id == room_id).first()
+        if not room_exists:
+            raise HTTPException(status_code=404, detail="Room not found")
+        return
+
+    raise HTTPException(status_code=400, detail="scope_type must be one of: GLOBAL, BUILDING, ROOM")
+
 # =============================================================================
 # IOT RULE MANAGEMENT
 # =============================================================================
@@ -32,11 +79,12 @@ def _ensure_rule_permissions(current_user: User, db: Session, required_permissio
 @router.get("/rules", response_model=List[IoTRuleResponse])
 async def list_rules(
     room_id: Optional[UUID] = None,
+    building_id: Optional[UUID] = None,
     active_only: bool = True,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List all IoT auto-rules with optional filters"""
+    """List IoT auto-rules with scope-aware filtering."""
     _ensure_rule_permissions(
         current_user,
         db,
@@ -46,12 +94,26 @@ async def list_rules(
     query = db.query(IoTRule)
     
     if room_id:
-        query = query.filter(IoTRule.room_id == room_id)
+        _, resolved_building_id = _get_room_and_building_ids(db, room_id)
+        query = query.filter(
+            or_(
+                IoTRule.scope_type == "GLOBAL",
+                and_(IoTRule.scope_type == "BUILDING", IoTRule.building_id == resolved_building_id),
+                and_(IoTRule.scope_type == "ROOM", IoTRule.room_id == room_id),
+            )
+        )
+    elif building_id:
+        query = query.filter(
+            or_(
+                IoTRule.scope_type == "GLOBAL",
+                and_(IoTRule.scope_type == "BUILDING", IoTRule.building_id == building_id),
+            )
+        )
     
     if active_only:
         query = query.filter(IoTRule.is_active == True)
     
-    rules = query.order_by(IoTRule.priority.desc(), IoTRule.created_at.desc()).all()
+    rules = query.order_by(_scope_order_expression(), IoTRule.priority.desc(), IoTRule.created_at.desc()).all()
     return rules
 
 @router.get("/rooms/{room_id}/rules", response_model=List[IoTRuleResponse])
@@ -60,21 +122,23 @@ async def list_room_rules(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List all active rules for a specific room"""
+    """List all active rules that apply to a specific room."""
     _ensure_rule_permissions(
         current_user,
         db,
         {"env_control:light", "env_control:fan", "env_control:ac", "dashboard:view_classroom", "dashboard:view_block", "dashboard:view_university"},
     )
 
-    room = db.query(Room).filter(Room.id == room_id).first()
-    if not room:
-        raise HTTPException(status_code=404, detail="Room not found")
+    _, building_id = _get_room_and_building_ids(db, room_id)
     
     rules = db.query(IoTRule).filter(
-        IoTRule.room_id == room_id,
-        IoTRule.is_active == True
-    ).order_by(IoTRule.priority.desc()).all()
+        IoTRule.is_active == True,
+        or_(
+            IoTRule.scope_type == "GLOBAL",
+            and_(IoTRule.scope_type == "BUILDING", IoTRule.building_id == building_id),
+            and_(IoTRule.scope_type == "ROOM", IoTRule.room_id == room_id),
+        )
+    ).order_by(_scope_order_expression(), IoTRule.priority.desc(), IoTRule.created_at.desc()).all()
     
     return rules
 
@@ -99,9 +163,13 @@ async def create_rule(
             status_code=400,
             detail=f"condition_type must be one of: {', '.join(valid_types)}"
         )
+
+    _validate_rule_scope(rule.scope_type, rule.building_id, rule.room_id, db)
     
     new_rule = IoTRule(
         rule_name=rule.rule_name,
+        scope_type=rule.scope_type,
+        building_id=rule.building_id,
         room_id=rule.room_id,
         condition_type=rule.condition_type,
         condition_params=rule.condition_params,
@@ -152,6 +220,12 @@ async def update_rule(
     # Update allowed fields
     if updates.rule_name:
         rule.rule_name = updates.rule_name
+    if "scope_type" in updates.model_fields_set:
+        rule.scope_type = updates.scope_type
+    if "building_id" in updates.model_fields_set:
+        rule.building_id = updates.building_id
+    if "room_id" in updates.model_fields_set:
+        rule.room_id = updates.room_id
     if updates.condition_params:
         rule.condition_params = updates.condition_params
     if updates.actions:
@@ -160,6 +234,8 @@ async def update_rule(
         rule.is_active = updates.is_active
     if updates.priority is not None:
         rule.priority = updates.priority
+
+    _validate_rule_scope(rule.scope_type, rule.building_id, rule.room_id, db)
     
     db.commit()
     db.refresh(rule)
@@ -227,6 +303,7 @@ async def create_occupancy_rule(
 
     rule = IoTRuleCreate(
         rule_name=f"Occupancy rule for room {room_id}",
+        scope_type="ROOM",
         room_id=room_id,
         condition_type="OCCUPANCY",
         condition_params={
@@ -260,6 +337,7 @@ async def create_zero_occupancy_rule(
 
     rule = IoTRuleCreate(
         rule_name=f"Zero occupancy shutdown for room {room_id}",
+        scope_type="ROOM",
         room_id=room_id,
         condition_type="ZERO_OCCUPANCY",
         condition_params={

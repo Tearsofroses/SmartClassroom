@@ -13,8 +13,13 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import logging
+from types import SimpleNamespace
 
 logger = logging.getLogger(__name__)
+
+
+class _ModelLoadError(RuntimeError):
+    pass
 
 
 class YOLOInferenceService:
@@ -42,10 +47,13 @@ class YOLOInferenceService:
 
     LEARNING_TEACHER_LABELS = {
         "GUIDE",
-        "BLACKBOARD_WRITING",
+        "ANSWER",
         "ON_STAGE_INTERACTION",
-        "BLACKBOARD",
+        "BLACKBOARD_WRITING",
         "TEACHER",
+        "STAND",
+        "USING_COMPUTER",
+        "BLACKBOARD",
     }
 
     TESTING_LABELS = {
@@ -54,6 +62,13 @@ class YOLOInferenceService:
         "DISCUSS",
         "USING_PHONE",
         "USING_COMPUTER",
+        "GUIDE",
+        "ANSWER",
+        "ON_STAGE_INTERACTION",
+        "BLACKBOARD_WRITING",
+        "TEACHER",
+        "STAND",
+        "BLACKBOARD",
     }
 
     LABEL_ALIASES = {
@@ -161,29 +176,12 @@ class YOLOInferenceService:
         """Initialize all configured YOLO models."""
         self.models: Dict[str, Dict[str, Any]] = {}
         try:
-            from ultralytics import YOLO
-
             for spec in self.MODEL_SPECS:
-                model_path = self._resolve_model_path(spec["relative_weight_path"])
-                if not model_path:
-                    logger.warning(
-                        "Skipping model %s because best.pt was not found",
-                        spec["model_key"],
-                    )
+                loaded_model = self._load_model_for_spec(spec)
+                if loaded_model is None:
                     continue
 
-                self.models[spec["model_key"]] = {
-                    "model": YOLO(str(model_path)),
-                    "class_names": spec["class_names"],
-                    "class_map": spec["class_map"],
-                    "actor_type": spec["actor_type"],
-                    "model_path": str(model_path),
-                }
-                logger.info(
-                    "YOLO model loaded: %s from %s",
-                    spec["model_key"],
-                    model_path,
-                )
+                self.models[spec["model_key"]] = loaded_model
         except Exception as e:
             logger.error(f"Failed to load YOLO model: {e}")
             self.models = {}
@@ -196,6 +194,67 @@ class YOLOInferenceService:
         logger.warning(
             "Selected models do not include direct classes for USING_PHONE, YAWN, CLAP, LEANING_ON_DESK."
         )
+
+    def _load_model_for_spec(self, spec: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        model_path = self._resolve_model_path(spec["relative_weight_path"])
+        if not model_path:
+            logger.warning(
+                "Skipping model %s because best.pt was not found",
+                spec["model_key"],
+            )
+            return None
+
+        try:
+            from ultralytics import YOLO
+
+            model = YOLO(str(model_path))
+
+            # If Ultralytics reconstructed a legacy YOLOv7 class from pickle,
+            # its runtime API may not satisfy the Ultralytics predictor stack.
+            # In that case, use our explicit legacy wrapper instead.
+            inner_model = getattr(model, "model", None)
+            inner_module = getattr(getattr(inner_model, "__class__", None), "__module__", "")
+            if isinstance(inner_module, str) and inner_module.startswith("models.yolo"):
+                raise _ModelLoadError(
+                    "Checkpoint resolved to legacy models.yolo.* classes; switching to legacy loader"
+                )
+
+            logger.info("YOLOv8 loader succeeded for %s", spec["model_key"])
+            return {
+                "model": model,
+                "class_names": spec["class_names"],
+                "class_map": spec["class_map"],
+                "actor_type": spec["actor_type"],
+                "model_path": str(model_path),
+                "loader": "ultralytics",
+            }
+        except Exception as ultralytics_error:
+            logger.warning(
+                "Ultralytics loader failed for %s: %s. Trying legacy YOLOv7 compatibility loader.",
+                spec["model_key"],
+                ultralytics_error,
+            )
+
+        try:
+            from models.yolo import load_legacy_yolov7_detector
+
+            legacy_model = load_legacy_yolov7_detector(model_path, names=spec["class_names"])
+            logger.info("Legacy YOLOv7 loader succeeded for %s", spec["model_key"])
+            return {
+                "model": legacy_model,
+                "class_names": spec["class_names"],
+                "class_map": spec["class_map"],
+                "actor_type": spec["actor_type"],
+                "model_path": str(model_path),
+                "loader": "legacy_yolov7",
+            }
+        except Exception as legacy_error:
+            logger.error(
+                "Failed to load YOLO model %s via both loaders: %s",
+                spec["model_key"],
+                legacy_error,
+            )
+            return None
 
     def _resolve_model_path(self, relative_path: List[str]) -> Optional[Path]:
         """Resolve weight path from common workspace/container roots."""

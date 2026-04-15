@@ -289,7 +289,9 @@ class IncidentResponse(BaseModel):
 
 class IoTRuleBase(BaseModel):
     rule_name: str
-    room_id: UUID
+    scope_type: Literal["GLOBAL", "BUILDING", "ROOM"]
+    building_id: Optional[UUID] = None
+    room_id: Optional[UUID] = None
     condition_type: str
     condition_params: dict
     actions: list
@@ -300,6 +302,9 @@ class IoTRuleCreate(IoTRuleBase):
 
 class IoTRuleUpdate(BaseModel):
     rule_name: Optional[str] = None
+    scope_type: Optional[Literal["GLOBAL", "BUILDING", "ROOM"]] = None
+    building_id: Optional[UUID] = None
+    room_id: Optional[UUID] = None
     condition_params: Optional[dict] = None
     actions: Optional[list] = None
     is_active: Optional[bool] = None

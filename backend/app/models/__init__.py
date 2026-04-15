@@ -284,13 +284,16 @@ class IoTRule(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     rule_name = Column(String, nullable=False)
-    room_id = Column(UUID(as_uuid=True), ForeignKey("rooms.id"), nullable=False, index=True)
+    scope_type = Column(String, nullable=False)
+    building_id = Column(UUID(as_uuid=True), ForeignKey("buildings.id"), index=True)
+    room_id = Column(UUID(as_uuid=True), ForeignKey("rooms.id"), index=True)
     condition_type = Column(String, nullable=False)  # OCCUPANCY, TIMETABLE, ZERO_OCCUPANCY
     condition_params = Column(JSON, nullable=False)
     actions = Column(JSON, nullable=False)
     is_active = Column(Boolean, default=True)
     priority = Column(Integer, default=0)
     created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     last_triggered = Column(DateTime)
 
 class DeviceState(Base):

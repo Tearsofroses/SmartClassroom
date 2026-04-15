@@ -1,0 +1,41 @@
+# YOLO Dataset and Models (too large for build context)
+YOLO/
+backend/models/yolo_weights/
+
+# Node modules (will be reinstalled)
+node_modules/
+frontend/node_modules/
+
+# Python caches
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# IDE and OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Docker files
+docker-compose*.yml
+.dockerignore
+Dockerfile
+
+# Documentation and configs
+*.md
+.git/
+.gitignore
+.env
+.env.example
+
+# Test and build artifacts
+dist/
+build/
+coverage/
+test_output.txt

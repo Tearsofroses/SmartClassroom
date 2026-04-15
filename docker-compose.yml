@@ -89,6 +89,7 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
+      - ./backend/models/yolo_weights:/app/models/yolo_weights:ro
     networks:
       - doai_network
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
