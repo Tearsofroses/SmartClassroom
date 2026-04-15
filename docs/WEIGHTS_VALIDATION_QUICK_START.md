@@ -20,10 +20,10 @@ python backend/tests/test_weights_validation.py --phase phase2 --verbose
 ### Option 2: PowerShell (Windows)
 ```powershell
 # Full suite
-.\test_weights_validation.ps1 -Phase all -Verbose
+.\scripts\testing\test_weights_validation.ps1 -Phase all -Verbose
 
 # Or just setup/extract frames
-.\test_weights_validation.ps1 -Phase phase1
+.\scripts\testing\test_weights_validation.ps1 -Phase phase1
 ```
 
 ### Option 3: Setup Script (Python)
@@ -190,7 +190,7 @@ backend/tests/
       └── teacher_behavior/
 
 root/
-  ├── test_weights_validation.ps1         ← PowerShell runner
+   ├── scripts/testing/test_weights_validation.ps1  ← PowerShell runner
   └── setup_weights_validation.py         ← Setup script
 ```
 

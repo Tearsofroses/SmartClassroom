@@ -15,7 +15,7 @@
 ### Documentation & Configuration
 - ✅ `backend/app/main.py` - Updated to register all routers
 - ✅ `docs/API_SPEC.md` - Complete API specification (40+ endpoints documented)
-- ✅ `PHASE_1_COMPLETE.md` - Phase 1 summary
+- ✅ `docs/PHASE_1_COMPLETE.md` - Phase 1 summary
 
 ## Endpoints by Category
 

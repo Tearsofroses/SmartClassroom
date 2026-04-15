@@ -1,5 +1,5 @@
 # YOLO Weights Validation Test Suite - PowerShell Runner
-# Usage: .\test_weights_validation.ps1 -Phase all -Verbose
+# Usage: .\scripts\testing\test_weights_validation.ps1 -Phase all -Verbose
 # Run from: project root (d:\Projects\DoAnDN)
 
 param(
@@ -15,6 +15,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "Continue"
+
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$repoRoot = Resolve-Path (Join-Path $scriptDir '..\..')
+Set-Location $repoRoot
 
 # Colors for output
 $colors = @{

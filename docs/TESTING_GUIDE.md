@@ -317,7 +317,7 @@ docker compose exec backend pytest -q backend/tests/test_auth_access_helpers.py 
 
 ### 2) Run role-by-role smoke access matrix
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\smoke_role_access.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\testing\smoke_role_access.ps1
 ```
 
 ### 3) Expected matrix reference
@@ -329,7 +329,7 @@ Goal: guarantee `lecturer_demo` has at least one `ACTIVE` session in assigned ro
 
 ### 1) Run one-command reset + preflight
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\demo_reset_lecturer_session.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\testing\demo_reset_lecturer_session.ps1
 ```
 
 ### 2) Expected success output
@@ -342,7 +342,7 @@ powershell -ExecutionPolicy Bypass -File .\demo_reset_lecturer_session.ps1
 ```powershell
 docker compose down
 docker compose up -d --build
-powershell -ExecutionPolicy Bypass -File .\demo_reset_lecturer_session.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\testing\demo_reset_lecturer_session.ps1
 ```
 
 ### Backend Not Responding

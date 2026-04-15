@@ -1,6 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
-$repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$repoRoot = Resolve-Path (Join-Path $scriptDir '..\..')
 Set-Location $repoRoot
 
 Write-Host '[0/4] Ensuring lecturer mapping schema exists...' -ForegroundColor Yellow

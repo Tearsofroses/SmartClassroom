@@ -62,6 +62,22 @@ npm install
 npm run dev
 ```
 
+## Documentation and Script Locations
+
+- Main operational docs are in `docs/`:
+	- `docs/QUICK_START.md`
+	- `docs/TESTING_GUIDE.md`
+	- `docs/PHASE_1_COMPLETE.md`
+	- `docs/PHASE_2_COMPLETE.md`
+	- `docs/WEIGHTS_VALIDATION_QUICK_START.md`
+- Testing and smoke PowerShell scripts are in `scripts/testing/`:
+	- `scripts/testing/smoke_phase12.ps1`
+	- `scripts/testing/smoke_phase3.ps1`
+	- `scripts/testing/smoke_role_access.ps1`
+	- `scripts/testing/demo_reset_lecturer_session.ps1`
+	- `scripts/testing/test_weights_validation.ps1`
+- Runtime/test logs from root were moved to `logs/`.
+
 ## Project Structure
 
 ```

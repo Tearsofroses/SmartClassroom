@@ -1,6 +1,10 @@
 # Phase 3 - AI Integration Testing Script
 param([string]$BackendUrl = "http://localhost:8000")
 
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$repoRoot = Resolve-Path (Join-Path $scriptDir '..\..')
+Set-Location $repoRoot
+
 Write-Host "[1/10] Initializing Admin..." -ForegroundColor Yellow
 try {
     Invoke-RestMethod -Uri "$BackendUrl/auth/init-admin" -Method POST -ContentType "application/json" -Body '{"username":"admin","password":"admin123","email":"admin@test.ai"}'

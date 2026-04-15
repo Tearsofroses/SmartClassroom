@@ -13,5 +13,5 @@ This matrix defines expected authorization behavior for core role-sensitive endp
 ## Notes
 
 - Endpoints were selected to cover broad dashboard access, incident restrictions, and strict student self-scope.
-- This matrix is executable via the root script: smoke_role_access.ps1.
+- This matrix is executable via: scripts/testing/smoke_role_access.ps1.
 - If role permissions evolve, update this file and the script together.

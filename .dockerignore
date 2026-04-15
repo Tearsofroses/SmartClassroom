@@ -38,4 +38,4 @@ Dockerfile
 dist/
 build/
 coverage/
-test_output.txt
+logs/*.txt
