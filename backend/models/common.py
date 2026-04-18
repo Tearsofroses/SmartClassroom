@@ -54,25 +54,43 @@ class RepConv(nn.Module):
     def __init__(self, c1=1, c2=1, k=3, s=1, p=None, g=1, act=True):
         super().__init__()
         self.conv = Conv(c1, c2, k, s, p, g, act)
+        self.act = nn.SiLU() if act else nn.Identity()
 
     def forward(self, x):
-        return self.conv(x)
+        # Simple path for checkpoints initialized from this shim.
+        if hasattr(self, "conv"):
+            return self.conv(x)
+
+        # YOLOv7 deploy path after rep-parameterization.
+        if hasattr(self, "rbr_reparam"):
+            return self.act(self.rbr_reparam(x))
+
+        # YOLOv7 training/inference path with branch summation.
+        dense_out = self.rbr_dense(x) if hasattr(self, "rbr_dense") else 0
+        one_out = self.rbr_1x1(x) if hasattr(self, "rbr_1x1") else 0
+        if hasattr(self, "rbr_identity") and self.rbr_identity is not None:
+            id_out = self.rbr_identity(x)
+        else:
+            id_out = 0
+        return self.act(dense_out + one_out + id_out)
 
 
 class SPPCSPC(nn.Module):
     def __init__(self, c1=1, c2=1, k=(5, 9, 13)):
         super().__init__()
-        c_ = max(c2 // 2, 1)
+        # Match YOLOv7 SPPCSPC channel math used in serialized checkpoints.
+        c_ = max(c2, 1)
         self.cv1 = Conv(c1, c_, 1, 1)
         self.cv2 = Conv(c1, c_, 1, 1)
         self.cv3 = Conv(c_, c_, 3, 1)
         self.cv4 = Conv(c_, c_, 1, 1)
-        self.cv5 = Conv(c_, c_, 3, 1)
-        self.cv6 = Conv(c_ * 5, c2, 1, 1)
+        self.cv5 = Conv(c_ * 4, c_, 1, 1)
+        self.cv6 = Conv(c_, c_, 3, 1)
+        self.cv7 = Conv(c_ * 2, c2, 1, 1)
         self.m = nn.ModuleList([nn.MaxPool2d(kernel_size=kernel, stride=1, padding=kernel // 2) for kernel in k])
 
     def forward(self, x):
         x1 = self.cv4(self.cv3(self.cv1(x)))
-        pooled = [pool(x1) for pool in self.m]
-        x2 = self.cv5(self.cv2(x))
-        return self.cv6(torch.cat([x1, *pooled, x2], dim=1))
+        y1 = self.cv6(self.cv5(torch.cat([x1, *[pool(x1) for pool in self.m]], dim=1)))
+        y2 = self.cv2(x)
+        return self.cv7(torch.cat((y1, y2), dim=1))

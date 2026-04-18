@@ -43,6 +43,12 @@ class Detect(nn.Module):
         self.anchor_grid[i] = self.anchors[i].clone().view(1, -1, 1, 1, 2)
 
     def forward(self, x):
+        inplace = getattr(self, "inplace", True)
+        if not hasattr(self, "grid") or len(self.grid) != self.nl:
+            self.grid = [torch.empty(0) for _ in range(self.nl)]
+        if not hasattr(self, "anchor_grid") or len(self.anchor_grid) != self.nl:
+            self.anchor_grid = [torch.empty(0) for _ in range(self.nl)]
+
         outputs = []
         for i in range(self.nl):
             xi = self.m[i](x[i])
@@ -52,7 +58,7 @@ class Detect(nn.Module):
                 if self.grid[i].shape[2:4] != xi.shape[2:4]:
                     self._make_grid(nx, ny, i)
                 y = xi.sigmoid()
-                if self.inplace:
+                if inplace:
                     y[..., 0:2] = (y[..., 0:2] * 2.0 - 0.5 + self.grid[i]) * self.stride[i]
                     y[..., 2:4] = (y[..., 2:4] * 2.0) ** 2 * self.anchor_grid[i]
                 outputs.append(y.view(bs, -1, self.no))
