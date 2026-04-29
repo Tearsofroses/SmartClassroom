@@ -1,7 +1,5 @@
-"""Database seeding script for buildings, floors, rooms, and mock runtime data."""
+"""Database seeding script for buildings, floors, rooms, and demo runtime data."""
 import logging
-import random
-import uuid
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from app.models import (
@@ -52,15 +50,43 @@ DEVICE_LOCATIONS = [
     ("FRONT", "RIGHT"),
     ("FRONT", "LEFT"),
 ]
-STUDENT_BEHAVIORS = ["writing", "listening", "raising_hand", "reading"]
-RISK_BEHAVIORS = ["head_turn", "talking", "phone_use"]
+
+DEMO_TEACHER = {
+    "name": "Le Minh Hoang",
+    "email": "le.minh.hoang@smartcampus.local",
+    "department": "School of Computer Science and Engineering",
+    "phone": "0908000001",
+}
+
+DEMO_SUBJECT = {
+    "name": "Computer Vision Applications",
+    "code": "AI3307",
+    "description": "Applied computer vision for smart classroom analytics.",
+}
+
+DEMO_STUDENTS = [
+    ("Nguyen Gia Bao", "22110001", "22110001@student.smartcampus.local", "SE-2022"),
+    ("Tran Minh Khoa", "22110005", "22110005@student.smartcampus.local", "SE-2022"),
+    ("Le Quoc Anh", "22110008", "22110008@student.smartcampus.local", "SE-2022"),
+    ("Pham Thu Trang", "22110012", "22110012@student.smartcampus.local", "SE-2022"),
+    ("Vo Thanh Dat", "22110016", "22110016@student.smartcampus.local", "SE-2022"),
+    ("Nguyen Hoang Mai", "22110021", "22110021@student.smartcampus.local", "AI-2022"),
+    ("Bui Khanh Linh", "22110025", "22110025@student.smartcampus.local", "AI-2022"),
+    ("Do Duc Huy", "22110029", "22110029@student.smartcampus.local", "AI-2022"),
+    ("Phan Thu Uyen", "22110033", "22110033@student.smartcampus.local", "EE-2022"),
+    ("Trinh Gia Han", "22110037", "22110037@student.smartcampus.local", "EE-2022"),
+    ("Dang Tuan Kiet", "22110041", "22110041@student.smartcampus.local", "EE-2022"),
+    ("Hoang Bao Chau", "22110045", "22110045@student.smartcampus.local", "EE-2022"),
+]
+
+DEMO_ROOM_CODES = ("A1-F2-R03", "LAB9-F1-R02", "B1-F1-R02")
 
 
 def _build_room_devices(room_code: str) -> list[dict]:
-    """Generate deterministic mock inventory for a room using location enum values."""
+    """Generate deterministic device inventory for a room using location enum values."""
     devices = []
     for index, (device_type, (location_fb, location_lr)) in enumerate(zip(DEVICE_TYPES, DEVICE_LOCATIONS), start=1):
-        device_id = f"{room_code}-{device_type[:2]}-{index:02d}".replace(" ", "")
+        device_id = f"{room_code}-{device_type}-{index:02d}".replace(" ", "")
         devices.append(
             {
                 "device_id": device_id,
@@ -68,16 +94,21 @@ def _build_room_devices(room_code: str) -> list[dict]:
                 "location_front_back": location_fb,
                 "location_left_right": location_lr,
                 "location": f"{location_fb}_{location_lr}",
-                "status": "ON" if index % 2 == 1 else "OFF",
+                "status": "OFF" if device_type == "AC" else "ON",
                 "mqtt_topic": f"building/*/floor/*/room/{room_code}/device/{device_id}/state",
-                "power_consumption_watts": 20 * index,
+                "power_consumption_watts": {
+                    "LIGHT": 48,
+                    "AC": 1500,
+                    "FAN": 120,
+                    "CAMERA": 18,
+                }[device_type],
             }
         )
     return devices
 
 
 def _seed_mock_runtime_data(db: Session) -> None:
-    """Seed mock teacher/subject/students/sessions/behaviors/incidents and device states."""
+    """Seed meaningful demo teacher/subject/students/sessions and device states."""
     rooms = db.query(Room).order_by(Room.room_code.asc()).all()
     if not rooms:
         return
@@ -108,107 +139,164 @@ def _seed_mock_runtime_data(db: Session) -> None:
                 )
             )
 
-    # Create teacher and subject if missing.
-    teacher = db.query(Teacher).filter(Teacher.email == "mock.teacher@campus.local").first()
+    demo_active_sessions = (
+        db.query(ClassSession)
+        .join(Subject, Subject.id == ClassSession.subject_id)
+        .filter(
+            ClassSession.status == "ACTIVE",
+            Subject.code.in_(["AI3307", "EE2305", "SE3315"]),
+        )
+        .count()
+    )
+    if demo_active_sessions > 0:
+        db.flush()
+        return
+
+    teacher = db.query(Teacher).filter(Teacher.email == DEMO_TEACHER["email"]).first()
     if not teacher:
         teacher = Teacher(
-            name="Mock Teacher",
-            email="mock.teacher@campus.local",
-            department="Engineering",
-            phone="000-111-222",
+            name=DEMO_TEACHER["name"],
+            email=DEMO_TEACHER["email"],
+            department=DEMO_TEACHER["department"],
+            phone=DEMO_TEACHER["phone"],
         )
         db.add(teacher)
         db.flush()
 
-    subject = db.query(Subject).filter(Subject.code == "MOCK101").first()
+    subject = db.query(Subject).filter(Subject.code == DEMO_SUBJECT["code"]).first()
     if not subject:
-        subject = Subject(name="Mock Smart Classroom", code="MOCK101", description="Seeded demo subject")
+        subject = Subject(
+            name=DEMO_SUBJECT["name"],
+            code=DEMO_SUBJECT["code"],
+            description=DEMO_SUBJECT["description"],
+        )
         db.add(subject)
         db.flush()
 
-    # Create students for analytics and incidents.
     students: list[Student] = []
-    for index in range(1, 13):
-        sid = f"MOCK-STU-{index:03d}"
+    for name, sid, email, class_name in DEMO_STUDENTS:
         existing = db.query(Student).filter(Student.student_id == sid).first()
         if existing:
             students.append(existing)
             continue
         student = Student(
-            name=f"Mock Student {index}",
+            name=name,
             student_id=sid,
-            email=f"mock.student{index}@campus.local",
-            class_name="SE-2026",
+            email=email,
+            class_name=class_name,
         )
         db.add(student)
         students.append(student)
     db.flush()
 
-    # Create active sessions in first rooms so dashboard is populated.
-    target_rooms = rooms[:16]
-    for index, room in enumerate(target_rooms):
+    room_map = {room.room_code: room for room in rooms}
+    target_rooms = [room_map[code] for code in DEMO_ROOM_CODES if code in room_map]
+    if not target_rooms:
+        target_rooms = rooms[:3]
+
+    session_blueprints = [
+        {
+            "room": target_rooms[0],
+            "mode": "NORMAL",
+            "start_delta": 35,
+            "students_present": students[:7],
+            "behavior_entries": [
+                (students[0], "hand-raising", 2, 18, 0.94),
+                (students[0], "answering", 1, 25, 0.92),
+                (students[1], "writing", 4, 210, 0.91),
+                (students[2], "reading", 3, 170, 0.89),
+                (teacher, "guiding", 5, 420, 0.93),
+                (teacher, "blackboard-writing", 4, 360, 0.90),
+            ],
+            "incidents": [],
+        },
+        {
+            "room": target_rooms[1] if len(target_rooms) > 1 else target_rooms[0],
+            "mode": "NORMAL",
+            "start_delta": 95,
+            "students_present": students[4:10],
+            "behavior_entries": [
+                (students[4], "using-computer", 4, 540, 0.93),
+                (students[5], "discussing", 2, 88, 0.87),
+                (students[6], "writing", 3, 165, 0.88),
+                (teacher, "guiding", 4, 300, 0.91),
+                (teacher, "on-stage-interaction", 3, 180, 0.89),
+            ],
+            "incidents": [],
+        },
+        {
+            "room": target_rooms[2] if len(target_rooms) > 2 else target_rooms[-1],
+            "mode": "TESTING",
+            "start_delta": 18,
+            "students_present": students[:8],
+            "behavior_entries": [
+                (students[1], "talking", 1, 18, 0.83),
+                (students[2], "bow-head", 3, 74, 0.81),
+                (students[6], "using-phone", 1, 42, 0.92),
+                (teacher, "guiding", 2, 120, 0.88),
+            ],
+            "incidents": [
+                (students[2], 0.82, "CRITICAL", {"head-turning": 4, "talking": 2}),
+                (students[6], 0.68, "HIGH", {"phone-usage": 1, "head-turning": 2}),
+            ],
+        },
+    ]
+
+    for blueprint in session_blueprints:
+        room = blueprint["room"]
         existing_active = (
             db.query(ClassSession)
-            .filter(ClassSession.room_id == room.id, ClassSession.status == "ACTIVE")
+            .filter(
+                ClassSession.room_id == room.id,
+                ClassSession.teacher_id == teacher.id,
+                ClassSession.subject_id == subject.id,
+                ClassSession.status == "ACTIVE",
+            )
             .first()
         )
         if existing_active:
             continue
 
-        mode = "TESTING" if index % 2 == 0 else "NORMAL"
-        start_time = datetime.utcnow() - timedelta(minutes=5 + index)
+        start_time = datetime.utcnow() - timedelta(minutes=blueprint["start_delta"])
         session = ClassSession(
             room_id=room.id,
             teacher_id=teacher.id,
             subject_id=subject.id,
-            mode=mode,
+            mode=blueprint["mode"],
             status="ACTIVE",
             start_time=start_time,
-            students_present=[str(student.id) for student in students[:8]],
+            students_present=[str(student.id) for student in blueprint["students_present"]],
         )
         db.add(session)
         db.flush()
 
-        # Add behavior logs for learning analytics and frame preview source.
-        for student in students[:6]:
-            behavior = random.choice(STUDENT_BEHAVIORS)
+        for actor, behavior, count, duration, confidence in blueprint["behavior_entries"]:
+            actor_type = "TEACHER" if actor.id == teacher.id else "STUDENT"
             db.add(
                 BehaviorLog(
                     session_id=session.id,
-                    actor_id=student.id,
-                    actor_type="STUDENT",
+                    actor_id=actor.id,
+                    actor_type=actor_type,
                     behavior_class=behavior,
-                    count=random.randint(1, 5),
-                    duration_seconds=random.randint(5, 40),
-                    detected_at=datetime.utcnow() - timedelta(minutes=random.randint(1, 6)),
-                    yolo_confidence=round(random.uniform(0.7, 0.95), 2),
+                    count=count,
+                    duration_seconds=duration,
+                    detected_at=start_time + timedelta(minutes=5),
+                    yolo_confidence=confidence,
                 )
             )
 
-        # Add testing incidents for TESTING mode sessions.
-        if mode == "TESTING":
-            for student in students[:3]:
-                score = round(random.uniform(0.55, 0.95), 2)
-                if score >= 0.8:
-                    risk_level = "CRITICAL"
-                elif score >= 0.65:
-                    risk_level = "HIGH"
-                elif score >= 0.4:
-                    risk_level = "MEDIUM"
-                else:
-                    risk_level = "LOW"
-
-                db.add(
-                    RiskIncident(
-                        session_id=session.id,
-                        student_id=student.id,
-                        risk_score=score,
-                        risk_level=risk_level,
-                        triggered_behaviors={random.choice(RISK_BEHAVIORS): random.randint(1, 3)},
-                        flagged_at=datetime.utcnow() - timedelta(minutes=random.randint(1, 8)),
-                        reviewed=False,
-                    )
+        for student, score, risk_level, behaviors in blueprint["incidents"]:
+            db.add(
+                RiskIncident(
+                    session_id=session.id,
+                    student_id=student.id,
+                    risk_score=score,
+                    risk_level=risk_level,
+                    triggered_behaviors=behaviors,
+                    flagged_at=start_time + timedelta(minutes=8),
+                    reviewed=False,
                 )
+            )
 
     db.flush()
 
@@ -220,7 +308,7 @@ def seed_buildings(db: Session) -> None:
     # Check if buildings already exist
     existing_count = db.query(Building).count()
     if existing_count > 0:
-        logger.info(f"Database already seeded with {existing_count} buildings. Reusing structure and seeding mock runtime data.")
+        logger.info(f"Database already seeded with {existing_count} buildings. Reusing structure and seeding demo runtime data.")
         _seed_mock_runtime_data(db)
         db.commit()
         return
@@ -352,7 +440,7 @@ def seed_buildings(db: Session) -> None:
         logger.info(f"  - Lab Buildings (10): 10 buildings × 2 floors × 5 rooms = 100 rooms")
         logger.info(f"✓ Floors created: {floors_created}")
         logger.info(f"✓ Rooms created: {rooms_created}")
-        logger.info("✓ Mock runtime data seeded: devices, sessions, behavior logs, and incidents")
+        logger.info("✓ Demo runtime data seeded: devices, sessions, behavior logs, and incidents")
         logger.info(f"  TOTAL: {buildings_created} buildings, {floors_created} floors, {rooms_created} rooms")
         logger.info("=" * 80)
         
