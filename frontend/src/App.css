@@ -75,6 +75,10 @@ p {
   gap: 10px;
 }
 
+.admin-hero-metrics {
+  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+}
+
 .stat-card {
   display: flex;
   align-items: center;

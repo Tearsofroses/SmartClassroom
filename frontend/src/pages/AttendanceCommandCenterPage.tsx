@@ -336,56 +336,58 @@ export function AttendanceCommandCenterPage(): JSX.Element {
       {isLoading ? <section className="panel">Loading attendance dashboard...</section> : null}
       {error ? <section className="panel error-panel">{error}</section> : null}
 
-      <section className="panel">
-        <div className="section-title-row">
-          <h2>Session Attendance Breakdown</h2>
-          <div className="inline-filters">
-            <select value={breakdownDimension} onChange={(event) => setBreakdownDimension(event.target.value as AttendanceDashboardDimension)}>
-              <option value="day_of_week">By Day of Week</option>
-              <option value="session">By Session</option>
-              <option value="subject">By Subject</option>
-            </select>
+      <div className="content-grid-two">
+        <section className="panel">
+          <div className="section-title-row">
+            <h2>Session Attendance Breakdown</h2>
+            <div className="inline-filters">
+              <select value={breakdownDimension} onChange={(event) => setBreakdownDimension(event.target.value as AttendanceDashboardDimension)}>
+                <option value="day_of_week">By Day of Week</option>
+                <option value="session">By Session</option>
+                <option value="subject">By Subject</option>
+              </select>
+            </div>
           </div>
-        </div>
 
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={breakdownData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="label" />
-            <YAxis />
-            <Tooltip />
-            <Legend />
-            <Bar dataKey="present" stackId="attendance" fill="#10b981" name="Present" />
-            <Bar dataKey="late" stackId="attendance" fill="#facc15" name="Late" />
-            <Bar dataKey="absent" stackId="attendance" fill="#ef4444" name="Absent" />
-          </BarChart>
-        </ResponsiveContainer>
-      </section>
+          <ResponsiveContainer width="100%" height={320}>
+            <BarChart data={breakdownData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="label" />
+              <YAxis />
+              <Tooltip />
+              <Legend />
+              <Bar dataKey="present" stackId="attendance" fill="#10b981" name="Present" />
+              <Bar dataKey="late" stackId="attendance" fill="#facc15" name="Late" />
+              <Bar dataKey="absent" stackId="attendance" fill="#ef4444" name="Absent" />
+            </BarChart>
+          </ResponsiveContainer>
+        </section>
 
-      <section className="panel">
-        <div className="section-title-row">
-          <h2>Attendance Rate Trend</h2>
-          <div className="inline-filters">
-            <select value={trendGranularity} onChange={(event) => setTrendGranularity(event.target.value as AttendanceDashboardTrendGranularity)}>
-              <option value="weekday">Weekday</option>
-              <option value="day">Daily</option>
-              <option value="week">Weekly</option>
-              <option value="month">Monthly</option>
-            </select>
+        <section className="panel">
+          <div className="section-title-row">
+            <h2>Attendance Rate Trend</h2>
+            <div className="inline-filters">
+              <select value={trendGranularity} onChange={(event) => setTrendGranularity(event.target.value as AttendanceDashboardTrendGranularity)}>
+                <option value="weekday">Weekday</option>
+                <option value="day">Daily</option>
+                <option value="week">Weekly</option>
+                <option value="month">Monthly</option>
+              </select>
+            </div>
           </div>
-        </div>
 
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={trendData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="label" />
-            <YAxis domain={[0, 100]} />
-            <Tooltip />
-            <Legend />
-            <Line type="monotone" dataKey="attendance_rate" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} name="Attendance Rate %" />
-          </LineChart>
-        </ResponsiveContainer>
-      </section>
+          <ResponsiveContainer width="100%" height={320}>
+            <LineChart data={trendData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="label" />
+              <YAxis domain={[0, 100]} />
+              <Tooltip />
+              <Legend />
+              <Line type="monotone" dataKey="attendance_rate" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} name="Attendance Rate %" />
+            </LineChart>
+          </ResponsiveContainer>
+        </section>
+      </div>
 
       <section className="panel">
         <div className="section-title-row">
