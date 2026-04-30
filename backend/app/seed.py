@@ -43,7 +43,7 @@ BUILDING_CONFIGS = {
     "LAB": (2, 5),  # Lab buildings: 2 floors, 5 rooms/floor
 }
 
-DEVICE_TYPES = ["LIGHT", "AC", "FAN", "CAMERA"]
+DEVICE_TYPES = ["LIGHT", "AC", "FAN"]
 DEVICE_LOCATIONS = [
     ("FRONT", "LEFT"),
     ("BACK", "RIGHT"),
@@ -116,8 +116,11 @@ def _seed_mock_runtime_data(db: Session) -> None:
     # Seed device inventory and states for a useful subset of rooms.
     rooms_for_devices = rooms[:80]
     for room in rooms_for_devices:
-        device_list = _build_room_devices(room.room_code)
-        room.devices = {"device_list": device_list}
+        if not room.devices or not room.devices.get("device_list"):
+            device_list = _build_room_devices(room.room_code)
+            room.devices = {"device_list": device_list}
+        else:
+            device_list = room.devices["device_list"]
 
         for device in device_list:
             existing_state = (

@@ -695,14 +695,18 @@ async def ingest_testing_mode(
             mode="TESTING",
         )
         
-        # Store detection logs
+        # Store detection logs (skip if no valid student_id)
         detections = frame_result["detections"]
         room_id = session.room_id
         
         for detection in detections:
+            student_id = detection.get("student_id")
+            if not student_id:
+                continue  # Skip detections without valid student_id
+            
             log = BehaviorLog(
                 session_id=session_id,
-                actor_id=detection.get("student_id"),
+                actor_id=student_id,
                 actor_type="STUDENT",
                 behavior_class=detection["behavior_class"],
                 count=1,
@@ -934,6 +938,74 @@ async def get_latest_session_frame(
         "source": "none",
         "image_base64": None,
         "captured_at": None
+    }
+
+@router.get("/sessions/{session_id}/behavior-logs")
+async def get_session_behavior_logs(
+    session_id: UUID,
+    actor_id: Optional[UUID] = None,
+    behavior_class: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Fetch behavior logs for a session with optional filters.
+    
+    Query params:
+    - actor_id: Filter by actor (student/teacher) UUID
+    - behavior_class: Filter by behavior class name
+    - limit: Max results (default 50, max 500)
+    - offset: Pagination offset (default 0)
+    """
+    _ensure_session_permissions(
+        current_user, 
+        db, 
+        {"dashboard:view_classroom", "dashboard:view_block", "dashboard:view_university", "report:performance"},
+    )
+    
+    session = db.query(ClassSession).filter(ClassSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    _ensure_room_scope(current_user, session.room_id, db)
+    
+    # Build query
+    query = db.query(BehaviorLog).filter(BehaviorLog.session_id == session_id)
+    
+    if actor_id:
+        query = query.filter(BehaviorLog.actor_id == actor_id)
+    
+    if behavior_class:
+        query = query.filter(BehaviorLog.behavior_class == behavior_class)
+    
+    # Order by detected_at descending
+    query = query.order_by(BehaviorLog.detected_at.desc())
+    
+    # Pagination
+    limit = min(limit, 500)  # Cap at 500
+    total = query.count()
+    logs = query.offset(offset).limit(limit).all()
+    
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "logs": [
+            {
+                "id": str(log.id),
+                "session_id": str(log.session_id),
+                "actor_id": str(log.actor_id) if log.actor_id else None,
+                "actor_type": log.actor_type,
+                "behavior_class": log.behavior_class,
+                "count": log.count,
+                "duration_seconds": log.duration_seconds,
+                "yolo_confidence": log.yolo_confidence,
+                "detected_at": log.detected_at,
+                "frame_snapshot": log.frame_snapshot.decode("utf-8") if isinstance(log.frame_snapshot, bytes) else str(log.frame_snapshot) if log.frame_snapshot else None,
+            }
+            for log in logs
+        ]
     }
 
 @router.post("/sessions/{session_id}/end")

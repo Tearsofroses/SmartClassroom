@@ -95,6 +95,16 @@ export function SessionDetailPage(): JSX.Element {
         </button>
 
         <h1>Session Detail</h1>
+          {session?.status === 'ACTIVE' && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => navigate(`/sessions/${sessionId}/capture`)}
+              style={{ marginBottom: '16px', padding: '8px 16px', fontSize: '13px' }}
+            >
+              Open Camera Capture
+            </button>
+          )}
         <p className="muted">Session ID: {sessionId}</p>
 
         {error && <div className="error-panel">{error}</div>}

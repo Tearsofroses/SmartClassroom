@@ -49,6 +49,7 @@ export function AdminSettingsPage(): JSX.Element {
   const [roomDraft, setRoomDraft] = useState<{ normal: string; testing: string }>({ normal: '', testing: '' })
   const [message, setMessage] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<'GROUP' | 'BUILDING' | 'ROOM'>('GROUP')
 
   const minInterval = useMemo(() => {
     if (buildingConfig?.min_interval_ms) return buildingConfig.min_interval_ms
@@ -285,124 +286,86 @@ export function AdminSettingsPage(): JSX.Element {
 
       <section className="panel">
         <div className="section-title-row">
-          <h2>Group Defaults</h2>
-          <span>{minInterval} - {maxInterval} ms</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <h2>Configuration Scope</h2>
+            <select 
+              value={activeTab} 
+              onChange={(e) => setActiveTab(e.target.value as 'GROUP' | 'BUILDING' | 'ROOM')}
+              style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #c9c2b8', fontFamily: 'inherit' }}
+            >
+              <option value="GROUP">Group Defaults</option>
+              <option value="BUILDING">Building Overrides</option>
+              <option value="ROOM">Room Overrides</option>
+            </select>
+          </div>
+          <span>
+            {activeTab === 'GROUP' ? `${minInterval} - ${maxInterval} ms` : ''}
+            {activeTab === 'BUILDING' ? (buildingConfig?.building_code ?? '-') : ''}
+            {activeTab === 'ROOM' ? (roomConfig?.room_code ?? '-') : ''}
+          </span>
         </div>
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Group</th>
-                <th>NORMAL (ms)</th>
-                <th>TESTING (ms)</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {GROUP_CODES.map((groupCode) => {
-                const row = groups.find((item) => item.group_code === groupCode)
-                const draft = groupDraft[groupCode] ?? {
-                  normal: String(row?.normal_interval_ms ?? 30000),
-                  testing: String(row?.testing_interval_ms ?? 2000),
-                }
-                return (
-                  <tr key={groupCode}>
-                    <td>{groupCode}</td>
-                    <td>
-                      <input
-                        type="number"
-                        min={minInterval}
-                        max={maxInterval}
-                        value={draft.normal}
-                        onChange={(event) =>
-                          setGroupDraft((prev) => ({
-                            ...prev,
-                            [groupCode]: { ...draft, normal: event.target.value },
-                          }))
-                        }
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="number"
-                        min={minInterval}
-                        max={maxInterval}
-                        value={draft.testing}
-                        onChange={(event) =>
-                          setGroupDraft((prev) => ({
-                            ...prev,
-                            [groupCode]: { ...draft, testing: event.target.value },
-                          }))
-                        }
-                      />
-                    </td>
-                    <td>
-                      <div className="row-actions">
-                        <button type="button" onClick={() => void saveGroup(groupCode, 'NORMAL')}>Save NORMAL</button>
-                        <button type="button" onClick={() => void saveGroup(groupCode, 'TESTING')}>Save TESTING</button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
 
-      <section className="panel">
-        <div className="section-title-row">
-          <h2>Building Overrides</h2>
-          <span>{buildingConfig?.building_code ?? '-'}</span>
-        </div>
-        <div className="inline-filters">
-          <select value={selectedBuildingId} onChange={(event) => setSelectedBuildingId(event.target.value)}>
-            {buildings.map((building) => (
-              <option key={building.id} value={building.id}>
-                {building.code ?? building.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        {buildingConfig && (
+        {activeTab === 'GROUP' && (
           <div className="table-scroll">
-            <table>
+            <table className="settings-ratio-table">
+              <colgroup>
+                <col className="col-scope" />
+                <col className="col-normal" />
+                <col className="col-testing" />
+                <col className="col-actions" />
+              </colgroup>
               <thead>
                 <tr>
-                  <th>Mode</th>
-                  <th>Effective (ms)</th>
-                  <th>Source</th>
-                  <th>Override Input (ms)</th>
+                  <th>Group</th>
+                  <th>NORMAL (ms)</th>
+                  <th>TESTING (ms)</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {(['NORMAL', 'TESTING'] as RefreshIntervalMode[]).map((mode) => {
-                  const value = buildingConfig.values.find((item) => item.mode === mode)
+                {GROUP_CODES.map((groupCode) => {
+                  const row = groups.find((item) => item.group_code === groupCode)
+                  const draft = groupDraft[groupCode] ?? {
+                    normal: String(row?.normal_interval_ms ?? 30000),
+                    testing: String(row?.testing_interval_ms ?? 2000),
+                  }
                   return (
-                    <tr key={mode}>
-                      <td>{mode}</td>
-                      <td>{value?.interval_ms ?? '-'}</td>
-                      <td>{value ? `${value.source_scope}${value.is_override ? ' (override)' : ''}` : '-'}</td>
+                    <tr key={groupCode}>
+                      <td>{groupCode}</td>
                       <td>
                         <input
                           type="number"
                           min={minInterval}
                           max={maxInterval}
-                          value={mode === 'NORMAL' ? buildingDraft.normal : buildingDraft.testing}
+                          value={draft.normal}
                           onChange={(event) =>
-                            setBuildingDraft((prev) =>
-                              mode === 'NORMAL'
-                                ? { ...prev, normal: event.target.value }
-                                : { ...prev, testing: event.target.value },
-                            )
+                            setGroupDraft((prev) => ({
+                              ...prev,
+                              [groupCode]: { ...draft, normal: event.target.value },
+                            }))
                           }
+                          style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #c9c2b8' }}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          min={minInterval}
+                          max={maxInterval}
+                          value={draft.testing}
+                          onChange={(event) =>
+                            setGroupDraft((prev) => ({
+                              ...prev,
+                              [groupCode]: { ...draft, testing: event.target.value },
+                            }))
+                          }
+                          style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #c9c2b8' }}
                         />
                       </td>
                       <td>
                         <div className="row-actions">
-                          <button type="button" onClick={() => void saveBuilding(mode)}>Save Override</button>
-                          <button type="button" onClick={() => void resetBuilding(mode)}>Reset</button>
+                          <button type="button" onClick={() => void saveGroup(groupCode, 'NORMAL')}>Save NORMAL</button>
+                          <button type="button" onClick={() => void saveGroup(groupCode, 'TESTING')}>Save TESTING</button>
                         </div>
                       </td>
                     </tr>
@@ -412,72 +375,156 @@ export function AdminSettingsPage(): JSX.Element {
             </table>
           </div>
         )}
-      </section>
 
-      <section className="panel">
-        <div className="section-title-row">
-          <h2>Room Overrides</h2>
-          <span>{roomConfig?.room_code ?? '-'}</span>
-        </div>
-        <div className="inline-filters">
-          <select value={selectedRoomId} onChange={(event) => setSelectedRoomId(event.target.value)}>
-            <option value="">Select room</option>
-            {rooms.map((room) => (
-              <option key={room.id} value={room.id}>
-                {room.room_code}
-              </option>
-            ))}
-          </select>
-          <span className="muted">{floors.length} floors / {rooms.length} rooms loaded</span>
-        </div>
-
-        {roomConfig && (
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Mode</th>
-                  <th>Effective (ms)</th>
-                  <th>Source</th>
-                  <th>Override Input (ms)</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(['NORMAL', 'TESTING'] as RefreshIntervalMode[]).map((mode) => {
-                  const value = roomConfig.values.find((item) => item.mode === mode)
-                  return (
-                    <tr key={mode}>
-                      <td>{mode}</td>
-                      <td>{value?.interval_ms ?? '-'}</td>
-                      <td>{value ? `${value.source_scope}${value.is_override ? ' (override)' : ''}` : '-'}</td>
-                      <td>
-                        <input
-                          type="number"
-                          min={minInterval}
-                          max={maxInterval}
-                          value={mode === 'NORMAL' ? roomDraft.normal : roomDraft.testing}
-                          onChange={(event) =>
-                            setRoomDraft((prev) =>
-                              mode === 'NORMAL'
-                                ? { ...prev, normal: event.target.value }
-                                : { ...prev, testing: event.target.value },
-                            )
-                          }
-                        />
-                      </td>
-                      <td>
-                        <div className="row-actions">
-                          <button type="button" onClick={() => void saveRoom(mode)}>Save Override</button>
-                          <button type="button" onClick={() => void resetRoom(mode)}>Reset</button>
-                        </div>
-                      </td>
+        {activeTab === 'BUILDING' && (
+          <>
+            <div className="inline-filters" style={{ marginBottom: '1rem' }}>
+              <select 
+                value={selectedBuildingId} 
+                onChange={(event) => setSelectedBuildingId(event.target.value)}
+                style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #c9c2b8', fontFamily: 'inherit' }}
+              >
+                {buildings.map((building) => (
+                  <option key={building.id} value={building.id}>
+                    {building.code ?? building.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {buildingConfig && (
+              <div className="table-scroll">
+                <table className="settings-ratio-table">
+                  <colgroup>
+                    <col className="col-scope" />
+                    <col className="col-normal" />
+                    <col className="col-source" />
+                    <col className="col-testing" />
+                    <col className="col-actions" />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>Mode</th>
+                      <th>Effective (ms)</th>
+                      <th>Source</th>
+                      <th>Override Input (ms)</th>
+                      <th>Actions</th>
                     </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+                  </thead>
+                  <tbody>
+                    {(['NORMAL', 'TESTING'] as RefreshIntervalMode[]).map((mode) => {
+                      const value = buildingConfig.values.find((item) => item.mode === mode)
+                      return (
+                        <tr key={mode}>
+                          <td>{mode}</td>
+                          <td>{value?.interval_ms ?? '-'}</td>
+                          <td>{value ? `${value.source_scope}${value.is_override ? ' (override)' : ''}` : '-'}</td>
+                          <td>
+                            <input
+                              type="number"
+                              min={minInterval}
+                              max={maxInterval}
+                              value={mode === 'NORMAL' ? buildingDraft.normal : buildingDraft.testing}
+                              onChange={(event) =>
+                                setBuildingDraft((prev) =>
+                                  mode === 'NORMAL'
+                                    ? { ...prev, normal: event.target.value }
+                                    : { ...prev, testing: event.target.value },
+                                )
+                              }
+                              style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #c9c2b8' }}
+                            />
+                          </td>
+                          <td>
+                            <div className="row-actions">
+                              <button type="button" onClick={() => void saveBuilding(mode)}>Save Override</button>
+                              <button type="button" onClick={() => void resetBuilding(mode)}>Reset</button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+
+        {activeTab === 'ROOM' && (
+          <>
+            <div className="inline-filters" style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <select 
+                value={selectedRoomId} 
+                onChange={(event) => setSelectedRoomId(event.target.value)}
+                style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #c9c2b8', fontFamily: 'inherit' }}
+              >
+                <option value="">Select room</option>
+                {rooms.map((room) => (
+                  <option key={room.id} value={room.id}>
+                    {room.room_code}
+                  </option>
+                ))}
+              </select>
+              <span className="muted">{floors.length} floors / {rooms.length} rooms loaded</span>
+            </div>
+
+            {roomConfig && (
+              <div className="table-scroll">
+                <table className="settings-ratio-table">
+                  <colgroup>
+                    <col className="col-scope" />
+                    <col className="col-normal" />
+                    <col className="col-source" />
+                    <col className="col-testing" />
+                    <col className="col-actions" />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>Mode</th>
+                      <th>Effective (ms)</th>
+                      <th>Source</th>
+                      <th>Override Input (ms)</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(['NORMAL', 'TESTING'] as RefreshIntervalMode[]).map((mode) => {
+                      const value = roomConfig.values.find((item) => item.mode === mode)
+                      return (
+                        <tr key={mode}>
+                          <td>{mode}</td>
+                          <td>{value?.interval_ms ?? '-'}</td>
+                          <td>{value ? `${value.source_scope}${value.is_override ? ' (override)' : ''}` : '-'}</td>
+                          <td>
+                            <input
+                              type="number"
+                              min={minInterval}
+                              max={maxInterval}
+                              value={mode === 'NORMAL' ? roomDraft.normal : roomDraft.testing}
+                              onChange={(event) =>
+                                setRoomDraft((prev) =>
+                                  mode === 'NORMAL'
+                                    ? { ...prev, normal: event.target.value }
+                                    : { ...prev, testing: event.target.value },
+                                )
+                              }
+                              style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #c9c2b8' }}
+                            />
+                          </td>
+                          <td>
+                            <div className="row-actions">
+                              <button type="button" onClick={() => void saveRoom(mode)}>Save Override</button>
+                              <button type="button" onClick={() => void resetRoom(mode)}>Reset</button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
       </section>
     </main>

@@ -256,7 +256,7 @@ export function BuildingAttendancePage(): JSX.Element {
               <option value="ALL">All Floors</option>
               {floors.map((floor) => (
                 <option key={floor.id} value={floor.id}>
-                  F{floor.floor_number} {floor.name ?? ''}
+                  Floor {floor.floor_number}
                 </option>
               ))}
             </select>
@@ -272,7 +272,7 @@ export function BuildingAttendancePage(): JSX.Element {
               <option value="ALL">All Rooms</option>
               {filteredRooms.map((room) => (
                 <option key={room.id} value={room.id}>
-                  {room.room_code} {room.name ?? ''}
+                  {room.room_code}
                 </option>
               ))}
             </select>

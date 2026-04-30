@@ -62,7 +62,9 @@ BEGIN
         ADD CONSTRAINT teachers_user_id_fkey
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
     END IF;
+
 END $$;
+
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_teachers_user_id_unique
 ON teachers (user_id)
@@ -200,8 +202,8 @@ BEGIN
 
         SELECT id INTO v_building_id FROM buildings WHERE name = v_building_code;
 
-        FOR v_room_code IN
-            SELECT format('%s-F%s-R%s', v_building_code, floor_num, LPAD(room_num::TEXT, 2, '0'))
+        FOR v_room IN
+            SELECT format('%s-%s%s', v_building_code, floor_num, LPAD(room_num::TEXT, 2, '0')) AS code, floor_num AS fnum
             FROM generate_series(1, 3) AS floor_num
             CROSS JOIN generate_series(1, 15) AS room_num
         LOOP
@@ -209,8 +211,8 @@ BEGIN
             VALUES (
                 uuid_generate_v4(),
                 v_building_id,
-                split_part(split_part(v_room_code, '-F', 2), '-R', 1)::INT,
-                'Floor ' || split_part(split_part(v_room_code, '-F', 2), '-R', 1),
+                v_room.fnum,
+                'Floor ' || v_room.fnum::TEXT,
                 NOW(),
                 NOW()
             )
@@ -221,14 +223,14 @@ BEGIN
             SELECT id INTO v_floor_id
             FROM floors
             WHERE building_id = v_building_id
-              AND floor_number = split_part(split_part(v_room_code, '-F', 2), '-R', 1)::INT;
+              AND floor_number = v_room.fnum;
 
             INSERT INTO rooms (id, floor_id, room_code, name, capacity, devices, created_at, updated_at)
             VALUES (
                 uuid_generate_v4(),
                 v_floor_id,
-                v_room_code,
-                replace(v_room_code, '-', ' '),
+                v_room.code,
+                replace(v_room.code, '-', ' '),
                 30,
                 '{"device_list": []}'::jsonb,
                 NOW(),
@@ -254,8 +256,8 @@ BEGIN
 
         SELECT id INTO v_building_id FROM buildings WHERE name = v_building_code;
 
-        FOR v_room_code IN
-            SELECT format('%s-F%s-R%s', v_building_code, floor_num, LPAD(room_num::TEXT, 2, '0'))
+        FOR v_room IN
+            SELECT format('%s-%s%s', v_building_code, floor_num, LPAD(room_num::TEXT, 2, '0')) AS code, floor_num AS fnum
             FROM generate_series(1, 6) AS floor_num
             CROSS JOIN generate_series(1, 5) AS room_num
         LOOP
@@ -263,8 +265,8 @@ BEGIN
             VALUES (
                 uuid_generate_v4(),
                 v_building_id,
-                split_part(split_part(v_room_code, '-F', 2), '-R', 1)::INT,
-                'Floor ' || split_part(split_part(v_room_code, '-F', 2), '-R', 1),
+                v_room.fnum,
+                'Floor ' || v_room.fnum::TEXT,
                 NOW(),
                 NOW()
             )
@@ -275,14 +277,14 @@ BEGIN
             SELECT id INTO v_floor_id
             FROM floors
             WHERE building_id = v_building_id
-              AND floor_number = split_part(split_part(v_room_code, '-F', 2), '-R', 1)::INT;
+              AND floor_number = v_room.fnum;
 
             INSERT INTO rooms (id, floor_id, room_code, name, capacity, devices, created_at, updated_at)
             VALUES (
                 uuid_generate_v4(),
                 v_floor_id,
-                v_room_code,
-                replace(v_room_code, '-', ' '),
+                v_room.code,
+                replace(v_room.code, '-', ' '),
                 35,
                 '{"device_list": []}'::jsonb,
                 NOW(),
@@ -306,8 +308,8 @@ BEGIN
 
         SELECT id INTO v_building_id FROM buildings WHERE name = v_building_code;
 
-        FOR v_room_code IN
-            SELECT format('%s-F%s-R%s', v_building_code, floor_num, LPAD(room_num::TEXT, 2, '0'))
+        FOR v_room IN
+            SELECT format('%s-%s%s', v_building_code, floor_num, LPAD(room_num::TEXT, 2, '0')) AS code, floor_num AS fnum
             FROM generate_series(1, 2) AS floor_num
             CROSS JOIN generate_series(1, 5) AS room_num
         LOOP
@@ -315,8 +317,8 @@ BEGIN
             VALUES (
                 uuid_generate_v4(),
                 v_building_id,
-                split_part(split_part(v_room_code, '-F', 2), '-R', 1)::INT,
-                'Floor ' || split_part(split_part(v_room_code, '-F', 2), '-R', 1),
+                v_room.fnum,
+                'Floor ' || v_room.fnum::TEXT,
                 NOW(),
                 NOW()
             )
@@ -327,14 +329,14 @@ BEGIN
             SELECT id INTO v_floor_id
             FROM floors
             WHERE building_id = v_building_id
-              AND floor_number = split_part(split_part(v_room_code, '-F', 2), '-R', 1)::INT;
+              AND floor_number = v_room.fnum;
 
             INSERT INTO rooms (id, floor_id, room_code, name, capacity, devices, created_at, updated_at)
             VALUES (
                 uuid_generate_v4(),
                 v_floor_id,
-                v_room_code,
-                replace(v_room_code, '-', ' '),
+                v_room.code,
+                replace(v_room.code, '-', ' '),
                 28,
                 '{"device_list": []}'::jsonb,
                 NOW(),
@@ -361,8 +363,8 @@ BEGIN
 
         SELECT id INTO v_building_id FROM buildings WHERE name = v_building_name;
 
-        FOR v_room_code IN
-            SELECT format('%s-F%s-R%s', v_building_code, floor_num, LPAD(room_num::TEXT, 2, '0'))
+        FOR v_room IN
+            SELECT format('%s-%s%s', v_building_code, floor_num, LPAD(room_num::TEXT, 2, '0')) AS code, floor_num AS fnum
             FROM generate_series(1, 2) AS floor_num
             CROSS JOIN generate_series(1, 5) AS room_num
         LOOP
@@ -370,8 +372,8 @@ BEGIN
             VALUES (
                 uuid_generate_v4(),
                 v_building_id,
-                split_part(split_part(v_room_code, '-F', 2), '-R', 1)::INT,
-                'Floor ' || split_part(split_part(v_room_code, '-F', 2), '-R', 1),
+                v_room.fnum,
+                'Floor ' || v_room.fnum::TEXT,
                 NOW(),
                 NOW()
             )
@@ -382,14 +384,14 @@ BEGIN
             SELECT id INTO v_floor_id
             FROM floors
             WHERE building_id = v_building_id
-              AND floor_number = split_part(split_part(v_room_code, '-F', 2), '-R', 1)::INT;
+              AND floor_number = v_room.fnum;
 
             INSERT INTO rooms (id, floor_id, room_code, name, capacity, devices, created_at, updated_at)
             VALUES (
                 uuid_generate_v4(),
                 v_floor_id,
-                v_room_code,
-                replace(v_room_code, '-', ' '),
+                v_room.code,
+                replace(v_room.code, '-', ' '),
                 25,
                 '{"device_list": []}'::jsonb,
                 NOW(),
@@ -620,21 +622,21 @@ BEGIN
     SELECT r.id, f.id, f.building_id INTO v_ai_room_id, v_board_floor_id, v_ai_building_id
     FROM rooms r
     JOIN floors f ON f.id = r.floor_id
-    WHERE r.room_code = 'A1-F2-R03';
+    WHERE r.room_code = 'A1-203';
 
     SELECT r.id, f.building_id INTO v_iot_lab_room_id, v_iot_building_id
     FROM rooms r
     JOIN floors f ON f.id = r.floor_id
-    WHERE r.room_code = 'LAB9-F1-R02';
+    WHERE r.room_code = 'LAB9-102';
 
     SELECT r.id, f.id, f.building_id INTO v_test_room_id, v_facility_floor_id, v_test_building_id
     FROM rooms r
     JOIN floors f ON f.id = r.floor_id
-    WHERE r.room_code = 'B1-F1-R02';
+    WHERE r.room_code = 'B1-102';
 
     SELECT id INTO v_lecturer_spare_room_id
     FROM rooms
-    WHERE room_code = 'A2-F1-R05';
+    WHERE room_code = 'A2-105';
 
     IF v_ai_room_id IS NULL OR v_iot_lab_room_id IS NULL OR v_test_room_id IS NULL THEN
         RAISE NOTICE 'Critical demo rooms are missing. Room-dependent seed skipped.';
@@ -642,88 +644,48 @@ BEGIN
     END IF;
 
     FOR v_room IN
-        SELECT r.id, r.room_code
+        SELECT r.id, r.room_code, SUBSTRING(r.room_code FROM '^[A-Z0-9]+') AS building_code
         FROM rooms r
         ORDER BY r.room_code
         LIMIT 80
     LOOP
         DELETE FROM room_devices WHERE room_id = v_room.id;
 
-        INSERT INTO room_devices (
-            id,
-            room_id,
-            device_id,
-            device_type,
-            location_front_back,
-            location_left_right,
-            x_percent,
-            y_percent,
-            power_consumption_watts,
-            is_active,
-            source,
-            created_at,
-            updated_at
-        ) VALUES
-            (
-                uuid_generate_v4(),
-                v_room.id,
-                REPLACE(v_room.room_code, ' ', '') || '-LIGHT-01',
-                'LIGHT',
-                'FRONT',
-                'LEFT',
-                18.00,
-                16.00,
-                48,
-                TRUE,
-                'IMPORT',
-                NOW(),
-                NOW()
-            ),
-            (
-                uuid_generate_v4(),
-                v_room.id,
-                REPLACE(v_room.room_code, ' ', '') || '-AC-01',
-                'AC',
-                'BACK',
-                'RIGHT',
-                86.00,
-                18.00,
-                1500,
-                TRUE,
-                'IMPORT',
-                NOW(),
-                NOW()
-            ),
-            (
-                uuid_generate_v4(),
-                v_room.id,
-                REPLACE(v_room.room_code, ' ', '') || '-FAN-01',
-                'FAN',
-                'FRONT',
-                'RIGHT',
-                82.00,
-                22.00,
-                120,
-                TRUE,
-                'IMPORT',
-                NOW(),
-                NOW()
-            ),
-            (
-                uuid_generate_v4(),
-                v_room.id,
-                REPLACE(v_room.room_code, ' ', '') || '-CAM-01',
-                'CAMERA',
-                'FRONT',
-                'LEFT',
-                12.00,
-                10.00,
-                18,
-                TRUE,
-                'IMPORT',
-                NOW(),
-                NOW()
-            );
+        DECLARE
+            v_num_lights INT := 4;
+            v_num_fans INT := 2;
+            v_num_acs INT := 1;
+            v_i INT;
+        BEGIN
+            IF v_room.building_code = 'A1' THEN
+                v_num_lights := 4;
+                v_num_fans := 4;
+                v_num_acs := 2;
+            ELSIF v_room.building_code = 'A2' THEN
+                v_num_lights := 6;
+                v_num_fans := 4;
+                v_num_acs := 1;
+            ELSIF v_room.building_code = 'B1' THEN
+                v_num_lights := 4;
+                v_num_fans := 2;
+                v_num_acs := 2;
+            END IF;
+
+            FOR v_i IN 1..v_num_lights LOOP
+                INSERT INTO room_devices (id, room_id, device_id, device_type, device_index, location_front_back, location_left_right, x_percent, y_percent, power_consumption_watts, is_active, source, created_at, updated_at)
+                VALUES (uuid_generate_v4(), v_room.id, REPLACE(v_room.room_code, ' ', '') || '-LIGHT-0' || v_i, 'LIGHT', v_i, CASE WHEN v_i % 2 = 1 THEN 'FRONT' ELSE 'BACK' END, CASE WHEN v_i <= v_num_lights/2 THEN 'LEFT' ELSE 'RIGHT' END, 20 + (v_i * 10), 20, 48, TRUE, 'IMPORT', NOW(), NOW());
+            END LOOP;
+
+            FOR v_i IN 1..v_num_fans LOOP
+                INSERT INTO room_devices (id, room_id, device_id, device_type, device_index, location_front_back, location_left_right, x_percent, y_percent, power_consumption_watts, is_active, source, created_at, updated_at)
+                VALUES (uuid_generate_v4(), v_room.id, REPLACE(v_room.room_code, ' ', '') || '-FAN-0' || v_i, 'FAN', v_i, CASE WHEN v_i % 2 = 1 THEN 'FRONT' ELSE 'BACK' END, CASE WHEN v_i <= v_num_fans/2 THEN 'LEFT' ELSE 'RIGHT' END, 30 + (v_i * 10), 30, 120, TRUE, 'IMPORT', NOW(), NOW());
+            END LOOP;
+
+            FOR v_i IN 1..v_num_acs LOOP
+                INSERT INTO room_devices (id, room_id, device_id, device_type, device_index, location_front_back, location_left_right, x_percent, y_percent, power_consumption_watts, is_active, source, created_at, updated_at)
+                VALUES (uuid_generate_v4(), v_room.id, REPLACE(v_room.room_code, ' ', '') || '-AC-0' || v_i, 'AC', v_i, 'BACK', CASE WHEN v_i = 1 THEN 'RIGHT' ELSE 'LEFT' END, 80, 20 + (v_i * 10), 1500, TRUE, 'IMPORT', NOW(), NOW());
+            END LOOP;
+        END;
 
         UPDATE rooms
         SET devices = jsonb_build_object(
@@ -733,6 +695,7 @@ BEGIN
                     jsonb_build_object(
                         'device_id', rd.device_id,
                         'device_type', rd.device_type,
+                        'device_index', rd.device_index,
                         'location_front_back', rd.location_front_back,
                         'location_left_right', rd.location_left_right,
                         'location', rd.location_front_back || '_' || rd.location_left_right,
@@ -753,12 +716,13 @@ BEGIN
 
         DELETE FROM device_states WHERE room_id = v_room.id;
 
-        INSERT INTO device_states (id, room_id, device_id, device_type, status, manual_override, last_updated, updated_at)
+        INSERT INTO device_states (id, room_id, device_id, device_type, device_index, status, manual_override, last_updated, updated_at)
         SELECT
             uuid_generate_v4(),
             rd.room_id,
             rd.device_id,
             rd.device_type,
+            rd.device_index,
             CASE
                 WHEN rd.device_type = 'AC' THEN 'OFF'
                 ELSE 'ON'
@@ -1422,4 +1386,27 @@ BEGIN
             NOW()
         );
     END IF;
+
+
+    -- Injecting additional active sessions across multiple buildings
+    INSERT INTO class_sessions (
+        id, room_id, teacher_id, subject_id, mode, start_time, students_present, status, created_at, updated_at
+    )
+    SELECT
+        uuid_generate_v4(),
+        r.id,
+        v_lecturer_teacher_id,
+        v_ai_subject_id,
+        'NORMAL',
+        NOW() - (random() * interval '45 minutes'),
+        '[]'::jsonb,
+        'ACTIVE',
+        NOW(),
+        NOW()
+    FROM rooms r
+    WHERE r.room_code IN ('A1-102', 'A2-204', 'A2-301', 'B1-205', 'B2-101', 'C1-103', 'LAB1-101')
+    ON CONFLICT DO NOTHING;
+
 END $$;
+
+

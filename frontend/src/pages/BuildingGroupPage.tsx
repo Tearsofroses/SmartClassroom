@@ -4,7 +4,6 @@ import { useAuthStore } from '../store/auth'
 import { Building2, DoorOpen, Radio, Search } from 'lucide-react'
 import { getBuildingsOverview } from '../services/api'
 import type { BuildingOverview } from '../types'
-import { AdminSidebarNav } from '../components/AdminSidebarNav'
 import { toBuildingRouteParam } from '../utils/buildingRoute'
 
 type BuildingGroupKey = 'A' | 'B' | 'C' | 'LABS'
@@ -117,17 +116,7 @@ export function BuildingGroupPage(): JSX.Element {
   }
 
   return (
-    <main className="page split-layout campus-bg command-center-layout group-view-layout">
-      <aside className="left-sidebar panel command-side-panel">
-        <div className="sidebar-header">
-          <p className="eyebrow">Navigation</p>
-          <h1>Building Group View</h1>
-          <p className="muted">{meta.title} workspace</p>
-        </div>
-
-        <AdminSidebarNav active="sessions" />
-      </aside>
-
+    <main className="page campus-bg group-view-layout">
       <section className="right-content group-view-content">
         <header className="hero-header command-hero group-view-hero">
           <p className="eyebrow">Campus Group View</p>

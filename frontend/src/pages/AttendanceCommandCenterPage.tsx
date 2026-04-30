@@ -263,7 +263,7 @@ export function AttendanceCommandCenterPage(): JSX.Element {
                 .filter((floor) => selectedBuildingId === 'ALL' || floor.building_id === selectedBuildingId)
                 .map((floor) => (
                   <option key={floor.id} value={floor.id}>
-                    F{floor.floor_number} {floor.name ?? ''}
+                    Floor {floor.floor_number}
                   </option>
                 ))}
             </select>

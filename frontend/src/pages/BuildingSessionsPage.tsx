@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
+import { Camera } from 'lucide-react'
 import {
   addRoomDevice,
   getBuildingFloors,
@@ -38,6 +39,7 @@ import { usePermissions } from '../hooks/usePermissions'
 import { PERMISSIONS } from '../constants/permissions'
 import { resolveBuildingFromRouteParam } from '../utils/buildingRoute'
 import { buildAttendanceStreamUrl } from '../utils/attendanceStream'
+
 
 type ViewMode = 'DEVICE_SCREEN' | 'MODE_SCREEN'
 
@@ -106,6 +108,7 @@ function formatSensorReading(value: number, unit?: string | null): string {
 
 export function BuildingSessionsPage(): JSX.Element {
   const { buildingId } = useParams<{ buildingId: string }>()
+  const navigate = useNavigate()
   const currentRole = useAuthStore((state) => state.user?.role ?? null)
   const { hasAny } = usePermissions()
 
@@ -148,6 +151,7 @@ export function BuildingSessionsPage(): JSX.Element {
   const [editingDevicePower, setEditingDevicePower] = useState<string>('0')
   const [createDeviceMessage, setCreateDeviceMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [isAddingDevice, setIsAddingDevice] = useState(false)
+
   const [reloadKey, setReloadKey] = useState(0)
 
   const [streamStatus, setStreamStatus] = useState<StreamStatusResponse | null>(null)
@@ -933,7 +937,7 @@ export function BuildingSessionsPage(): JSX.Element {
                 <option value="ALL">All Floors</option>
                 {floorsInScope.map((floor) => (
                   <option key={floor.id} value={floor.id}>
-                    F{floor.floor_number} {floor.name ?? ''}
+                    Floor {floor.floor_number}
                   </option>
                 ))}
               </select>
@@ -950,7 +954,7 @@ export function BuildingSessionsPage(): JSX.Element {
                 <option value="ALL">All Rooms</option>
                 {roomsInScope.map((room) => (
                   <option key={room.id} value={room.id}>
-                    {room.room_code} {room.name ?? ''}
+                    {room.room_code}
                   </option>
                 ))}
               </select>
@@ -1135,54 +1139,14 @@ export function BuildingSessionsPage(): JSX.Element {
         </div>
       </section>
 
-      <section className="panel student-list-panel">
-        <div className="section-title-row">
-          <h3>Student List</h3>
-          <span>{selectedSession ? `Session ${selectedSession.id.slice(0, 8).toUpperCase()}` : 'No session selected'}</span>
-        </div>
-
-        {isAttendanceLoading ? (
-          <p className="muted">Loading student attendance...</p>
-        ) : !selectedSessionId ? (
-          <p className="muted">Select a current session to view student attendance status.</p>
-        ) : attendanceReport ? (
-          <div className="table-scroll">
-            <table className="student-list-table">
-              <thead>
-                <tr>
-                  <th>Student Name</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {attendanceReport.students.map((student) => (
-                  <tr key={student.student_id}>
-                    <td>
-                      <div className="student-name-stack">
-                        <strong>{student.student_name}</strong>
-                        <span>{student.student_code}</span>
-                      </div>
-                    </td>
-                    <td>
-                      <span className={`student-status-pill ${student.status.toLowerCase()}`}>
-                        {student.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="muted">Attendance report is not available for the selected session.</p>
-        )}
-      </section>
-
       {viewMode === 'DEVICE_SCREEN' ? (
         <section className="panel device-screen-panel">
           <div className="section-title-row">
             <h3>Device Screen</h3>
-            <span>{selectedRoomMeta ? selectedRoomMeta.room.room_code : 'Select a room to view devices'}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+
+              <span>{selectedRoomMeta ? selectedRoomMeta.room.room_code : 'Select a room to view devices'}</span>
+            </div>
           </div>
 
           {showCrudPanel ? (
@@ -1296,7 +1260,7 @@ export function BuildingSessionsPage(): JSX.Element {
                     return (
                       <tr key={device.device_id}>
                         <td>{device.device_id}</td>
-                        <td>{device.device_type}</td>
+                        <td>{device.device_type} {device.device_index}</td>
                         <td>
                           {isEditing ? (
                             <div className="inline-filters">
@@ -1320,30 +1284,22 @@ export function BuildingSessionsPage(): JSX.Element {
                           )}
                         </td>
                         <td>
-                          {isEditing ? (
-                            <input
-                              type="number"
-                              min={0}
-                              value={editingDevicePower}
-                              onChange={(event) => setEditingDevicePower(event.target.value)}
-                            />
-                          ) : (
-                            device.power_consumption_watts ?? 0
-                          )}
+                          {device.power_consumption_watts ?? 0}
                         </td>
                         <td>
-                          <span className={`device-status ${isOn ? 'on' : 'off'}`}>{isOn ? 'ON' : 'OFF'}</span>
+                          <button
+                            type="button"
+                            className={`device-status-toggle ${isOn ? 'on' : 'off'}`}
+                            onClick={() => void handleToggleDevice(device)}
+                            disabled={!canToggleDevices}
+                            title={canToggleDevices ? "Click to toggle status" : "View only"}
+                          >
+                            {isOn ? 'ON' : 'OFF'}
+                          </button>
                         </td>
                         <td>{toLocalDateTime(device.last_updated)}</td>
                         <td>
                           <div className="row-actions device-row-actions">
-                            <button
-                              type="button"
-                              onClick={() => void handleToggleDevice(device)}
-                              disabled={!canToggleDevices}
-                            >
-                              Toggle
-                            </button>
 
                             {canManageDevices ? (
                               isEditing ? (
@@ -1394,43 +1350,256 @@ export function BuildingSessionsPage(): JSX.Element {
 
         </section>
       ) : (
-        <section className="panel mode-screen-panel">
-          <div className="section-title-row">
-            <h3>Mode Screen</h3>
-            <span>{selectedSession ? selectedSession.mode : 'No active session selected'}</span>
-          </div>
-
-          {!selectedSession ? (
-            <p className="muted">Select an active session to view mode details.</p>
-          ) : (
-            <div className="mode-screen-grid">
-              <article>
-                <span>Session</span>
-                <strong>{selectedSession.id.slice(0, 8).toUpperCase()}</strong>
-              </article>
-              <article>
-                <span>Room</span>
-                <strong>{selectedSession.room_code ?? selectedRoomMeta?.room.room_code ?? '-'}</strong>
-              </article>
-              <article>
-                <span>Mode</span>
-                <strong>{selectedSession.mode}</strong>
-              </article>
-              <article>
-                <span>Status</span>
-                <strong>{selectedSession.status}</strong>
-              </article>
-              <article>
-                <span>Start</span>
-                <strong>{formatClock(selectedSession.start_time)}</strong>
-              </article>
-              <article>
-                <span>End</span>
-                <strong>{formatClock(selectedSession.end_time)}</strong>
-              </article>
+        <>
+          <section className="panel mode-screen-panel">
+            <div className="section-title-row">
+              <h3>Mode Screen</h3>
+              <span>{selectedSession ? selectedSession.mode : 'No active session selected'}</span>
             </div>
-          )}
-        </section>
+
+            {!selectedSession ? (
+              <p className="muted">Select an active session to view mode details.</p>
+            ) : (
+              <div className="mode-screen-grid">
+                <article>
+                  <span>Session</span>
+                  <strong>{selectedSession.id.slice(0, 8).toUpperCase()}</strong>
+                </article>
+                <article>
+                  <span>Room</span>
+                  <strong>{selectedSession.room_code ?? selectedRoomMeta?.room.room_code ?? '-'}</strong>
+                </article>
+                <article>
+                  <span>Mode</span>
+                  <strong>{selectedSession.mode}</strong>
+                </article>
+                <article>
+                  <span>Status</span>
+                  <strong>{selectedSession.status}</strong>
+                </article>
+                <article>
+                  <span>Start</span>
+                  <strong>{formatClock(selectedSession.start_time)}</strong>
+                </article>
+                <article>
+                  <span>End</span>
+                  <strong>{formatClock(selectedSession.end_time)}</strong>
+                </article>
+              </div>
+            )}
+          </section>
+
+          <section className="panel student-list-panel">
+            <div className="section-title-row">
+              <h3>Student List</h3>
+              <div className="row-actions">
+                <span>{selectedSession ? `Session ${selectedSession.id.slice(0, 8).toUpperCase()}` : 'No session selected'}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedSession) {
+                      navigate(`/sessions/${selectedSession.id}/capture`)
+                    }
+                  }}
+                  disabled={!selectedSession}
+                >
+                  <Camera size={14} /> Open Camera Capture
+                </button>
+              </div>
+            </div>
+
+            {attendanceReport && (
+              <div className="student-kpi-bar">
+                <div className="student-kpi-tile">
+                  <span>Enrolled</span>
+                  <strong>{attendanceReport.totals.enrolled}</strong>
+                </div>
+                <div className="student-kpi-tile present">
+                  <span>Present</span>
+                  <strong>{attendanceReport.totals.present}</strong>
+                </div>
+                <div className="student-kpi-tile late">
+                  <span>Late</span>
+                  <strong>{attendanceReport.totals.late}</strong>
+                </div>
+                <div className="student-kpi-tile absent">
+                  <span>Absent</span>
+                  <strong>{attendanceReport.totals.absent}</strong>
+                </div>
+                {selectedSession?.mode === 'NORMAL' && (() => {
+                  const scores = attendanceReport.students
+                    .map(s => s.performance_score)
+                    .filter((s): s is number => s !== null)
+                  const avg = scores.length > 0
+                    ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+                    : null
+                  return avg !== null ? (
+                    <div className="student-kpi-tile perf">
+                      <span>Avg Score</span>
+                      <strong>{avg}</strong>
+                    </div>
+                  ) : null
+                })()}
+                {selectedSession?.mode === 'TESTING' && (() => {
+                  const flagged = attendanceReport.students.filter(s => s.risk_level !== null).length
+                  return (
+                    <div className="student-kpi-tile risk">
+                      <span>Flagged</span>
+                      <strong>{flagged}</strong>
+                    </div>
+                  )
+                })()}
+              </div>
+            )}
+
+            {isAttendanceLoading ? (
+              <p className="muted">Loading student attendance...</p>
+            ) : !selectedSessionId ? (
+              <p className="muted">Select a current session to view student attendance status.</p>
+            ) : attendanceReport ? (
+              <div className="table-scroll">
+                <table className="student-list-table student-list-table--rich">
+                  <thead>
+                    <tr>
+                      <th>Student</th>
+                      <th>Class</th>
+                      <th>Status</th>
+                      <th>Check-in</th>
+                      <th>Confidence</th>
+                      {selectedSession?.mode === 'NORMAL' ? (
+                        <>
+                          <th>Perf. Score</th>
+                          <th>Top Behaviors</th>
+                          <th>Negative Flags</th>
+                        </>
+                      ) : (
+                        <>
+                          <th>Risk Level</th>
+                          <th>Risk Flags</th>
+                          <th>Reviewed</th>
+                        </>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {attendanceReport.students.map((student) => {
+                      const isLearning = selectedSession?.mode === 'NORMAL'
+
+                      // Build top behaviors (positive, sorted by count desc)
+                      const NEGATIVE_BEHAVIORS = new Set(['yawning', 'bow-head', 'using-phone', 'using-computer', 'talking', 'leaning-on-desk'])
+                      const behaviorEntries = student.behavior_summary
+                        ? Object.entries(student.behavior_summary).sort(([, a], [, b]) => b - a)
+                        : []
+                      const topPositive = behaviorEntries
+                        .filter(([k]) => !NEGATIVE_BEHAVIORS.has(k))
+                        .slice(0, 3)
+                      const negativeCount = behaviorEntries
+                        .filter(([k]) => NEGATIVE_BEHAVIORS.has(k))
+                        .reduce((sum, [, v]) => sum + v, 0)
+
+                      // Risk flags
+                      const riskFlags = student.triggered_behaviors
+                        ? Object.entries(student.triggered_behaviors).filter(([, v]) => (v as number) > 0)
+                        : []
+
+                      const riskLevelClass = student.risk_level
+                        ? `risk-level-pill ${student.risk_level.toLowerCase()}`
+                        : ''
+
+                      return (
+                        <tr key={student.student_id}>
+                          <td>
+                            <div className="student-name-stack">
+                              <strong>{student.student_name}</strong>
+                              <span>{student.student_code}</span>
+                            </div>
+                          </td>
+                          <td>
+                            <span className="student-class-badge">{student.student_class ?? '—'}</span>
+                          </td>
+                          <td>
+                            <span className={`student-status-pill ${student.status.toLowerCase()}`}>
+                              {student.status}
+                            </span>
+                          </td>
+                          <td className="td-mono">
+                            {student.first_seen_at
+                              ? new Date(student.first_seen_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                              : <span className="muted">—</span>}
+                          </td>
+                          <td className="td-mono">
+                            {student.confidence !== null
+                              ? <span className="confidence-badge">{Math.round(student.confidence * 100)}%</span>
+                              : <span className="muted">—</span>}
+                          </td>
+                          {isLearning ? (
+                            <>
+                              <td>
+                                {student.performance_score !== null ? (
+                                  <div className="perf-score-cell">
+                                    <div
+                                      className="perf-score-bar"
+                                      style={{ width: `${Math.min(100, Math.max(0, student.performance_score))}%` }}
+                                    />
+                                    <span>{student.performance_score}</span>
+                                  </div>
+                                ) : <span className="muted">—</span>}
+                              </td>
+                              <td>
+                                {topPositive.length > 0 ? (
+                                  <div className="behavior-chips">
+                                    {topPositive.map(([k, v]) => (
+                                      <span key={k} className="behavior-chip positive" title={k}>
+                                        {k.replace(/-/g, ' ')} ×{v}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : <span className="muted">—</span>}
+                              </td>
+                              <td>
+                                {negativeCount > 0 ? (
+                                  <span className="behavior-chip negative">⚠ {negativeCount}</span>
+                                ) : <span className="muted">—</span>}
+                              </td>
+                            </>
+                          ) : (
+                            <>
+                              <td>
+                                {student.risk_level ? (
+                                  <span className={riskLevelClass}>{student.risk_level}</span>
+                                ) : <span className="muted">—</span>}
+                              </td>
+                              <td>
+                                {riskFlags.length > 0 ? (
+                                  <div className="behavior-chips">
+                                    {riskFlags.map(([k, v]) => (
+                                      <span key={k} className="behavior-chip risk-flag" title={k}>
+                                        {k.replace(/_/g, ' ')} ×{v as number}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : <span className="muted">—</span>}
+                              </td>
+                              <td>
+                                {student.incident_reviewed !== null ? (
+                                  <span className={`reviewed-badge ${student.incident_reviewed ? 'done' : 'pending'}`}>
+                                    {student.incident_reviewed ? '✓ Reviewed' : '⏳ Pending'}
+                                  </span>
+                                ) : <span className="muted">—</span>}
+                              </td>
+                            </>
+                          )}
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="muted">Attendance report is not available for the selected session.</p>
+            )}
+          </section>
+        </>
       )}
 
       {viewMode === 'DEVICE_SCREEN' && selectedRoomId !== 'ALL' ? (

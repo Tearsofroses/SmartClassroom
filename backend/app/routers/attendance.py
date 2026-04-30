@@ -22,6 +22,8 @@ from app.models import (
     ClassSession,
     Enrollment,
     Floor,
+    PerformanceAggregate,
+    RiskIncident,
     Room,
     Subject,
     Student,
@@ -203,10 +205,37 @@ def _derive_student_statuses(
     config: AttendanceSessionConfig,
     enrolled_students: List[Student],
     first_seen_map: Dict[UUID, AttendanceEvent],
+    db: Session | None = None,
 ) -> Tuple[List[AttendanceStudentStatus], Dict[str, int]]:
     cutoff = session.start_time + timedelta(minutes=config.grace_minutes)
     items: List[AttendanceStudentStatus] = []
     totals = {"present": 0, "late": 0, "absent": 0, "enrolled": len(enrolled_students)}
+
+    # Pre-fetch performance aggregates for the session (all students at once)
+    perf_map: Dict[UUID, PerformanceAggregate] = {}
+    risk_map: Dict[UUID, RiskIncident] = {}
+    if db is not None:
+        perfs = (
+            db.query(PerformanceAggregate)
+            .filter(
+                PerformanceAggregate.session_id == session.id,
+                PerformanceAggregate.actor_type == "STUDENT",
+            )
+            .all()
+        )
+        for p in perfs:
+            perf_map[p.actor_id] = p
+
+        # Take the highest-risk incident per student (worst case)
+        incidents = (
+            db.query(RiskIncident)
+            .filter(RiskIncident.session_id == session.id)
+            .order_by(RiskIncident.risk_score.desc())
+            .all()
+        )
+        for inc in incidents:
+            if inc.student_id not in risk_map:
+                risk_map[inc.student_id] = inc
 
     for student in enrolled_students:
         first_event = first_seen_map.get(student.id)
@@ -221,14 +250,33 @@ def _derive_student_statuses(
             status = "LATE"
             totals["late"] += 1
 
+        # Performance enrichment
+        perf = perf_map.get(student.id)
+        performance_score = round(perf.total_score, 2) if perf else None
+        behavior_summary = perf.behavior_breakdown if perf else None
+
+        # Risk enrichment
+        inc = risk_map.get(student.id)
+        risk_level = inc.risk_level if inc else None
+        risk_score = round(inc.risk_score, 2) if inc else None
+        triggered_behaviors = inc.triggered_behaviors if inc else None
+        incident_reviewed = inc.reviewed if inc else None
+
         items.append(
             AttendanceStudentStatus(
                 student_id=student.id,
                 student_code=student.student_id,
                 student_name=student.name,
+                student_class=student.class_name,
                 status=status,
                 first_seen_at=first_event.occurred_at if first_event else None,
                 confidence=first_event.face_confidence if first_event else None,
+                performance_score=performance_score,
+                behavior_summary=behavior_summary,
+                risk_level=risk_level,
+                risk_score=risk_score,
+                triggered_behaviors=triggered_behaviors,
+                incident_reviewed=incident_reviewed,
             )
         )
 
@@ -1159,7 +1207,7 @@ async def get_session_attendance_report(
     enrolled_students = _get_enrolled_students(db, session.subject_id)
     first_seen_map = _get_first_recognized_event_map(db, session_id, config.min_confidence)
 
-    statuses, totals = _derive_student_statuses(session, config, enrolled_students, first_seen_map)
+    statuses, totals = _derive_student_statuses(session, config, enrolled_students, first_seen_map, db=db)
 
     return AttendanceSessionReport(
         session_id=session.id,

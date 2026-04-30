@@ -41,6 +41,9 @@ import type {
   DeviceTogglePayload,
   ThresholdConfigItem,
   ThresholdUpdatePayload,
+  LearningModeResponse,
+  TestingModeResponse,
+  BehaviorLogListResponse,
 } from '../types'
 
 export const api = axios.create({
@@ -412,5 +415,46 @@ export async function getStudentSessionDetail(sessionId: string): Promise<Studen
 
 export async function getStudentAttendanceSummary(days = 30): Promise<StudentAttendanceSummary> {
   const { data } = await api.get<StudentAttendanceSummary>('/students/me/attendance/summary', { params: { days } })
+  return data
+}
+
+// ============================================================================
+// BEHAVIOR DETECTION & LEARNING/TESTING MODES
+// ============================================================================
+
+export async function ingestLearningMode(
+  sessionId: string,
+  payload: {
+    image_base64: string
+    student_id?: string
+    confidence_threshold?: number
+  },
+): Promise<LearningModeResponse> {
+  const { data } = await api.post<LearningModeResponse>(`/sessions/${sessionId}/learn`, payload)
+  return data
+}
+
+export async function ingestTestingMode(
+  sessionId: string,
+  payload: {
+    image_base64: string
+    students_present?: string[]
+    confidence_threshold?: number
+  },
+): Promise<TestingModeResponse> {
+  const { data } = await api.post<TestingModeResponse>(`/sessions/${sessionId}/test`, payload)
+  return data
+}
+
+export async function getBehaviorLogs(
+  sessionId: string,
+  filters?: {
+    actor_id?: string
+    behavior_class?: string
+    limit?: number
+    offset?: number
+  },
+): Promise<BehaviorLogListResponse> {
+  const { data } = await api.get<BehaviorLogListResponse>(`/sessions/${sessionId}/behavior-logs`, { params: filters })
   return data
 }

@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { JSX, ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { AdminSidebarNav } from './AdminSidebarNav'
 import { getBuildingsOverview } from '../services/api'
 import { resolveBuildingFromRouteParam } from '../utils/buildingRoute'
 
@@ -19,7 +18,6 @@ interface AdminBuildingLayoutProps {
   sidebarContent?: ReactNode
   metrics?: AdminMetric[]
   eyebrow?: string
-  showSidebarNav?: boolean
   showCommandLinks?: boolean
   wrapSidebarContentPanel?: boolean
 }
@@ -32,7 +30,6 @@ export function AdminBuildingLayout({
   sidebarContent,
   metrics = [],
   eyebrow = 'Campus Management',
-  showSidebarNav = true,
   showCommandLinks = true,
   wrapSidebarContentPanel = true,
 }: AdminBuildingLayoutProps): JSX.Element {
@@ -81,34 +78,32 @@ export function AdminBuildingLayout({
       : 'sessions'
 
   return (
-    <main className="page split-layout campus-bg admin-building-shell">
-      <aside className="left-sidebar panel admin-building-sidebar">
-        <div className="sidebar-header">
-          <p className="eyebrow">{eyebrow}</p>
-          <h1>{hasBuildingContext ? 'Building Workspace' : 'Global Workspace'}</h1>
-          <p className="muted">{hasBuildingContext ? `Building ${buildingId}` : 'All buildings and rooms'}</p>
-        </div>
+    <main className={`page campus-bg admin-building-shell ${sidebarContent ? 'split-layout' : ''}`}>
+      {sidebarContent ? (
+        <aside className="left-sidebar panel admin-building-sidebar">
+          <div className="sidebar-header">
+            <p className="eyebrow">{eyebrow}</p>
+            <h1>{hasBuildingContext ? 'Building Workspace' : 'Global Workspace'}</h1>
+            <p className="muted">{hasBuildingContext ? `Building ${buildingId}` : 'All buildings and rooms'}</p>
+          </div>
 
-        {showSidebarNav ? <AdminSidebarNav active={activeSection} buildingId={buildingId} /> : null}
+          {showCommandLinks ? (
+            <>
+              {hasBuildingContext ? (
+                <Link className="inline-link" to={`/buildings/${legacyBuildingId ?? buildingId}?legacy=1`}>
+                  Open Legacy Dashboard
+                </Link>
+              ) : null}
+            </>
+          ) : null}
 
-        {showCommandLinks ? (
-          <>
-            {hasBuildingContext ? (
-              <Link className="inline-link" to={`/buildings/${legacyBuildingId ?? buildingId}?legacy=1`}>
-                Open Legacy Dashboard
-              </Link>
-            ) : null}
-          </>
-        ) : null}
-
-        {sidebarContent ? (
-          wrapSidebarContentPanel ? (
+          {wrapSidebarContentPanel ? (
             <section className="panel admin-side-panel">{sidebarContent}</section>
           ) : (
             <section className="admin-side-panel">{sidebarContent}</section>
-          )
-        ) : null}
-      </aside>
+          )}
+        </aside>
+      ) : null}
 
       <section className="right-content">
         <header className="hero-header admin-page-header">

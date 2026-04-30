@@ -208,6 +208,7 @@ export interface RoomSensorReadingsResponse {
 export interface RoomDeviceInventoryItem {
   device_id: string
   device_type: string
+  device_index: number
   location_front_back: 'FRONT' | 'BACK'
   location_left_right: 'LEFT' | 'RIGHT'
   location: string
@@ -293,9 +294,16 @@ export interface AttendanceStudentStatus {
   student_id: string
   student_code: string
   student_name: string
+  student_class: string | null
   status: 'PRESENT' | 'LATE' | 'ABSENT'
   first_seen_at: string | null
   confidence: number | null
+  performance_score: number | null
+  behavior_summary: Record<string, number> | null
+  risk_level: string | null
+  risk_score: number | null
+  triggered_behaviors: Record<string, number> | null
+  incident_reviewed: boolean | null
 }
 
 export interface AttendanceSessionReport {
@@ -452,4 +460,69 @@ export interface StudentSessionDetailResponse {
   grace_minutes: number
   behavior_summary: StudentBehaviorSummaryItem[]
   incidents: StudentIncidentItem[]
+}
+
+// ============================================================================
+// BEHAVIOR DETECTION & LEARNING/TESTING MODES
+// ============================================================================
+
+export interface BehaviorDetection {
+  behavior_class: string
+  confidence: number
+  bbox: [number, number, number, number]  // [x_norm, y_norm, w_norm, h_norm]
+  bbox_pixels?: [number, number, number, number]
+  student_id?: string
+  raw_label?: string
+  actor_type?: string
+  source_model?: string
+}
+
+export interface LearningModeResponse {
+  session_id: string
+  mode: 'LEARNING'
+  detections: BehaviorDetection[]
+  annotated_image_base64: string
+  detection_count: number
+  students_analyzed: Array<{
+    student_id: string
+    performance_score: number
+  }>
+}
+
+export interface TestingModeResponse {
+  session_id: string
+  mode: 'TESTING'
+  detections: BehaviorDetection[]
+  annotated_image_base64: string
+  detection_count: number
+  risk_analysis: Record<
+    string,
+    {
+      risk_score: number
+      risk_level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+      behaviors: Record<string, number>
+      should_flag: boolean
+    }
+  >
+  incidents_created: string[]
+}
+
+export interface BehaviorLogEntry {
+  id: string
+  session_id: string
+  actor_id: string | null
+  actor_type: string
+  behavior_class: string
+  count: number
+  duration_seconds: number
+  yolo_confidence: number
+  detected_at: string
+  frame_snapshot: string | null
+}
+
+export interface BehaviorLogListResponse {
+  total: number
+  offset: number
+  limit: number
+  logs: BehaviorLogEntry[]
 }

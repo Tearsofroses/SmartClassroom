@@ -286,13 +286,15 @@ CREATE TABLE IF NOT EXISTS device_states (
   room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
   device_id VARCHAR(255) NOT NULL,
   device_type VARCHAR(50) NOT NULL, -- LIGHT, FAN, AC, PROJECTOR, SENSOR, etc.
+  device_index INT NOT NULL DEFAULT 1, -- e.g., 1 for "FAN 1", 2 for "FAN 2"
   status VARCHAR(20) NOT NULL DEFAULT 'OFF', -- ON, OFF, ERROR, STANDBY
   last_toggled_by UUID REFERENCES teachers(id), -- Manual override by whom
   manual_override BOOLEAN DEFAULT FALSE,
   override_until TIMESTAMP,
   last_updated TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
-  UNIQUE(room_id, device_id)
+  UNIQUE(room_id, device_id),
+  UNIQUE(room_id, device_type, device_index)
 );
 
 -- Room Devices (Normalized inventory source-of-truth for layout imports)
@@ -301,6 +303,7 @@ CREATE TABLE IF NOT EXISTS room_devices (
   room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
   device_id VARCHAR(255) NOT NULL,
   device_type VARCHAR(50) NOT NULL,
+  device_index INT NOT NULL DEFAULT 1, -- e.g., 1 for "FAN 1", 2 for "FAN 2"
   location_front_back VARCHAR(10) NOT NULL CHECK (location_front_back IN ('FRONT', 'BACK')),
   location_left_right VARCHAR(10) NOT NULL CHECK (location_left_right IN ('LEFT', 'RIGHT')),
   x_percent NUMERIC(5,2),
@@ -310,7 +313,8 @@ CREATE TABLE IF NOT EXISTS room_devices (
   source VARCHAR(20) NOT NULL DEFAULT 'MANUAL', -- MANUAL | IMPORT
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
-  UNIQUE(room_id, device_id)
+  UNIQUE(room_id, device_id),
+  UNIQUE(room_id, device_type, device_index)
 );
 
 -- Room Layout Import Jobs (File-level audit trail)
@@ -639,8 +643,7 @@ CREATE INDEX idx_attendance_dashboard_exports_generated_at ON attendance_dashboa
 INSERT INTO device_types (code, display_name, unit, default_min, default_max, default_target, is_active) VALUES
 ('LIGHT', 'Light', 'LUX', 150, 800, 350, TRUE),
 ('AC', 'Air Conditioner', 'CELSIUS', 20, 28, 24, TRUE),
-('FAN', 'Fan', 'RPM', 200, 1200, 700, TRUE),
-('CAMERA', 'Camera', 'BOOLEAN', NULL, NULL, NULL, TRUE)
+('FAN', 'Fan', 'RPM', 200, 1200, 700, TRUE)
 ON CONFLICT (code) DO UPDATE SET
   display_name = EXCLUDED.display_name,
   unit = EXCLUDED.unit,
@@ -655,8 +658,7 @@ INSERT INTO device_threshold_profiles (id, device_type_code, min_value, max_valu
 VALUES
   (gen_random_uuid(), 'LIGHT', 150, 800, 350, TRUE, NULL, NOW(), NOW()),
   (gen_random_uuid(), 'AC', 20, 28, 24, TRUE, NULL, NOW(), NOW()),
-  (gen_random_uuid(), 'FAN', 200, 1200, 700, TRUE, NULL, NOW(), NOW()),
-  (gen_random_uuid(), 'CAMERA', NULL, NULL, NULL, TRUE, NULL, NOW(), NOW())
+  (gen_random_uuid(), 'FAN', 200, 1200, 700, TRUE, NULL, NOW(), NOW())
 ON CONFLICT (device_type_code) DO UPDATE SET
   min_value = EXCLUDED.min_value,
   max_value = EXCLUDED.max_value,

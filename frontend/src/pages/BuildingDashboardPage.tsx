@@ -1223,7 +1223,7 @@ export function BuildingDashboardPage(): JSX.Element {
                 <option value="ALL">All Floors</option>
                 {floors.map((floor) => (
                   <option key={floor.id} value={floor.id}>
-                    F{floor.floor_number} {floor.name ?? ''}
+                    Floor {floor.floor_number}
                   </option>
                 ))}
               </select>
@@ -1235,7 +1235,7 @@ export function BuildingDashboardPage(): JSX.Element {
                 <option value="ALL">All Rooms</option>
                 {filteredRooms.map((room) => (
                   <option key={room.id} value={room.id}>
-                    {room.room_code} {room.name ?? ''}
+                    {room.room_code}
                   </option>
                 ))}
               </select>
@@ -1371,7 +1371,7 @@ export function BuildingDashboardPage(): JSX.Element {
                               return (
                                 <tr key={`${device.room_id}:${device.device_id}`}>
                                   <td>{device.device_id}</td>
-                                  <td>{device.device_type}</td>
+                                  <td>{device.device_type} {device.device_index}</td>
                                   <td>
                                     {!canOnlyToggleDevices && isEditing ? (
                                       <div className="inline-filters">
@@ -1400,33 +1400,23 @@ export function BuildingDashboardPage(): JSX.Element {
                                   </td>
                                   {!canOnlyToggleDevices ? (
                                     <td>
-                                      {isEditing ? (
-                                        <input
-                                          type="number"
-                                          min={0}
-                                          value={editingDevicePower}
-                                          onChange={(event) => setEditingDevicePower(event.target.value)}
-                                        />
-                                      ) : (
-                                        device.power_consumption_watts ?? 0
-                                      )}
+                                      {device.power_consumption_watts ?? 0}
                                     </td>
                                   ) : null}
                                   <td>
-                                    <span className={`device-status ${isOn ? 'on' : 'off'}`}>{isOn ? 'ON' : 'OFF'}</span>
+                                    <button
+                                      type="button"
+                                      className={`device-status-toggle ${isOn ? 'on' : 'off'}`}
+                                      onClick={() => void handleToggleSingleDevice(device.device_id, isOn ? 'OFF' : 'ON', device.room_id)}
+                                      disabled={!canToggleDevices}
+                                      title={canToggleDevices ? "Click to toggle status" : "View only"}
+                                    >
+                                      {isOn ? 'ON' : 'OFF'}
+                                    </button>
                                   </td>
                                   {!canOnlyToggleDevices ? <td>{toLocalDateTime(device.last_updated ?? null)}</td> : null}
                                   <td>
                                     <div className="row-actions">
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          void handleToggleSingleDevice(device.device_id, isOn ? 'OFF' : 'ON', device.room_id)
-                                        }
-                                        disabled={!canToggleDevices}
-                                      >
-                                        Toggle
-                                      </button>
                                       {!canOnlyToggleDevices ? (
                                         <>
                                           {isEditing ? (
@@ -1837,7 +1827,7 @@ export function BuildingDashboardPage(): JSX.Element {
                           return (
                             <tr key={device.device_id}>
                               <td>{device.device_id}</td>
-                              <td>{device.device_type}</td>
+                              <td>{device.device_type} {device.device_index}</td>
                               <td>
                                 {isEditing ? (
                                   <div className="inline-filters">
@@ -1865,19 +1855,18 @@ export function BuildingDashboardPage(): JSX.Element {
                                 )}
                               </td>
                               <td>
-                                {isEditing ? (
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    value={editingDevicePower}
-                                    onChange={(event) => setEditingDevicePower(event.target.value)}
-                                  />
-                                ) : (
-                                  device.power_consumption_watts ?? 0
-                                )}
+                                {device.power_consumption_watts ?? 0}
                               </td>
                               <td>
-                                <span className={`device-status ${isOn ? 'on' : 'off'}`}>{isOn ? 'ON' : 'OFF'}</span>
+                                <button
+                                  type="button"
+                                  className={`device-status-toggle ${isOn ? 'on' : 'off'}`}
+                                  onClick={() => void handleToggleSingleDevice(device.device_id, isOn ? 'OFF' : 'ON', device.room_id)}
+                                  disabled={!canToggleDevices}
+                                  title={canToggleDevices ? "Click to toggle status" : "View only"}
+                                >
+                                  {isOn ? 'ON' : 'OFF'}
+                                </button>
                               </td>
                               <td>
                                 <div className="row-actions">

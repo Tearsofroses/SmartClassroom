@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom'
 import { Building2, DoorOpen, LayoutGrid, Radio, Search } from 'lucide-react'
 import { getBuildingsOverview } from '../services/api'
 import type { BuildingOverview } from '../types'
-import { AdminSidebarNav } from '../components/AdminSidebarNav'
 
 type BuildingGroupKey = 'A' | 'B' | 'C' | 'LABS'
 
@@ -114,17 +113,7 @@ export function DevicesGroupsOverviewPage(): JSX.Element {
   )
 
   return (
-    <main className="page split-layout campus-bg command-center-layout">
-      <aside className="left-sidebar panel command-side-panel">
-        <div className="sidebar-header">
-          <p className="eyebrow">Navigation</p>
-          <h1>Device Control Panel</h1>
-          <p className="muted">Choose a building group to open device operations.</p>
-        </div>
-
-        <AdminSidebarNav active="devices" />
-      </aside>
-
+    <main className="page campus-bg">
       <section className="right-content command-center-content">
         <header className="hero-header command-hero">
           <p className="eyebrow">Smart Classroom Platform</p>

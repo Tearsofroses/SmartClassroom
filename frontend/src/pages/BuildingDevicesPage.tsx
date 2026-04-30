@@ -25,6 +25,7 @@ import { usePermissions } from '../hooks/usePermissions'
 import { PERMISSIONS } from '../constants/permissions'
 import { useAuthStore } from '../store/auth'
 import { resolveBuildingFromRouteParam } from '../utils/buildingRoute'
+import { ClassroomMapView } from '../components/ClassroomMapView'
 
 interface RoomDirectoryItem {
   building: BuildingOverview
@@ -471,6 +472,21 @@ export function BuildingDevicesPage(): JSX.Element {
     }
   }
 
+  async function handleToggleSingleDevice(deviceId: string, action: 'ON' | 'OFF', roomId: string): Promise<void> {
+    if (!canToggleDevices) {
+      setError('You do not have permission to toggle devices.')
+      return
+    }
+
+    try {
+      await toggleDevice(roomId, deviceId, { action })
+      await refreshRoomDevices(roomId)
+      setError(null)
+    } catch (toggleError) {
+      setError(toggleError instanceof Error ? toggleError.message : 'Failed to toggle device')
+    }
+  }
+
   function openEditDevice(device: DeviceWithContext): void {
     setEditingDeviceId(device.device_id)
     setEditingDeviceRoomId(device.room_id)
@@ -627,7 +643,7 @@ export function BuildingDevicesPage(): JSX.Element {
               <option value="ALL">All Floors</option>
               {floorsInScope.map((floor) => (
                 <option key={floor.id} value={floor.id}>
-                  F{floor.floor_number} {floor.name ?? ''}
+                  Floor {floor.floor_number}
                 </option>
               ))}
             </select>
@@ -644,7 +660,7 @@ export function BuildingDevicesPage(): JSX.Element {
               <option value="ALL">All Rooms</option>
               {roomsInScope.map((room) => (
                 <option key={room.id} value={room.id}>
-                  {room.room_code} {room.name ?? ''}
+                  {room.room_code}
                 </option>
               ))}
             </select>
@@ -722,7 +738,6 @@ export function BuildingDevicesPage(): JSX.Element {
               <option value="LIGHT">LIGHT</option>
               <option value="AC">AC</option>
               <option value="FAN">FAN</option>
-              <option value="CAMERA">CAMERA</option>
             </select>
 
             <select
@@ -778,7 +793,7 @@ export function BuildingDevicesPage(): JSX.Element {
 
       <section className="panel">
         <div className="section-title-row">
-          <h2>Device Operations Table</h2>
+          <h2>Device Operations</h2>
           <span>{visibleDevices.length} records</span>
         </div>
 
@@ -793,119 +808,111 @@ export function BuildingDevicesPage(): JSX.Element {
                   <span>{roomGroup.devices.length} devices</span>
                 </div>
 
-                <div className="table-scroll">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Device</th>
-                        <th>Type</th>
-                        <th>Location</th>
-                        <th>Power (W)</th>
-                        <th>Status</th>
-                        <th>Last Updated</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {roomGroup.devices.map((device) => {
-                        const isOn = (device.status ?? 'OFF').toUpperCase() === 'ON'
-                        const isEditing = editingDeviceId === device.device_id && editingDeviceRoomId === device.room_id
+                <div className="device-split-layout">
+                  <div className="table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Device</th>
+                          <th>Location</th>
+                          <th>Status</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {roomGroup.devices.map((device) => {
+                          const isOn = (device.status ?? 'OFF').toUpperCase() === 'ON'
+                          const isEditing = editingDeviceId === device.device_id && editingDeviceRoomId === device.room_id
 
-                        return (
-                          <tr key={`${device.room_id}:${device.device_id}`}>
-                            <td>{device.device_id}</td>
-                            <td>{device.device_type}</td>
-                            <td>
-                              {isEditing ? (
-                                <div className="inline-filters">
-                                  <select
-                                    value={editingDeviceFrontBack}
-                                    onChange={(event) => setEditingDeviceFrontBack(event.target.value as 'FRONT' | 'BACK')}
-                                  >
-                                    <option value="FRONT">FRONT</option>
-                                    <option value="BACK">BACK</option>
-                                  </select>
-                                  <select
-                                    value={editingDeviceLeftRight}
-                                    onChange={(event) => setEditingDeviceLeftRight(event.target.value as 'LEFT' | 'RIGHT')}
-                                  >
-                                    <option value="LEFT">LEFT</option>
-                                    <option value="RIGHT">RIGHT</option>
-                                  </select>
-                                </div>
-                              ) : (
-                                device.location
-                              )}
-                            </td>
-                            <td>
-                              {isEditing ? (
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={editingDevicePower}
-                                  onChange={(event) => setEditingDevicePower(event.target.value)}
-                                />
-                              ) : (
-                                device.power_consumption_watts ?? 0
-                              )}
-                            </td>
-                            <td>
-                              <span className={`device-status ${isOn ? 'on' : 'off'}`}>{isOn ? 'ON' : 'OFF'}</span>
-                            </td>
-                            <td>{toLocalDateTime(device.last_updated)}</td>
-                            <td>
-                              <div className="row-actions device-row-actions">
+                          return (
+                            <tr key={`${device.room_id}:${device.device_id}`}>
+                              <td>{device.device_type} {device.device_index}</td>
+                              <td>
+                                {isEditing ? (
+                                  <div className="inline-filters">
+                                    <select
+                                      value={editingDeviceFrontBack}
+                                      onChange={(event) => setEditingDeviceFrontBack(event.target.value as 'FRONT' | 'BACK')}
+                                    >
+                                      <option value="FRONT">FRONT</option>
+                                      <option value="BACK">BACK</option>
+                                    </select>
+                                    <select
+                                      value={editingDeviceLeftRight}
+                                      onChange={(event) => setEditingDeviceLeftRight(event.target.value as 'LEFT' | 'RIGHT')}
+                                    >
+                                      <option value="LEFT">LEFT</option>
+                                      <option value="RIGHT">RIGHT</option>
+                                    </select>
+                                  </div>
+                                ) : (
+                                  device.location
+                                )}
+                              </td>
+                              <td>
                                 <button
                                   type="button"
+                                  className={`device-status-toggle ${isOn ? 'on' : 'off'}`}
                                   onClick={() => void handleToggleDevice(device)}
                                   disabled={!canToggleDevices}
+                                  title={canToggleDevices ? "Click to toggle status" : "View only"}
                                 >
-                                  Toggle
+                                  {isOn ? 'ON' : 'OFF'}
                                 </button>
-
-                                {isEditing ? (
-                                  <>
+                              </td>
+                              <td>
+                                <div className="row-actions device-row-actions">
+                                  {isEditing ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleUpdateDevice(device)}
+                                        disabled={!canManageDevices}
+                                      >
+                                        Save
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingDeviceId('')
+                                          setEditingDeviceRoomId('')
+                                        }}
+                                      >
+                                        Cancel
+                                      </button>
+                                    </>
+                                  ) : (
                                     <button
                                       type="button"
-                                      onClick={() => void handleUpdateDevice(device)}
+                                      onClick={() => openEditDevice(device)}
                                       disabled={!canManageDevices}
                                     >
-                                      Save
+                                      Edit
                                     </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setEditingDeviceId('')
-                                        setEditingDeviceRoomId('')
-                                      }}
-                                    >
-                                      Cancel
-                                    </button>
-                                  </>
-                                ) : (
+                                  )}
+
                                   <button
                                     type="button"
-                                    onClick={() => openEditDevice(device)}
+                                    onClick={() => void handleDeleteDevice(device)}
                                     disabled={!canManageDevices}
                                   >
-                                    Edit
+                                    Delete
                                   </button>
-                                )}
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
 
-                                <button
-                                  type="button"
-                                  onClick={() => void handleDeleteDevice(device)}
-                                  disabled={!canManageDevices}
-                                >
-                                  Delete
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
+                  <ClassroomMapView
+                    devices={roomGroup.devices}
+                    onToggle={(deviceId, action, roomId) => void handleToggleSingleDevice(deviceId, action, roomId ?? roomGroup.room_id)}
+                    disabled={!canToggleDevices}
+                    roomCode={roomGroup.room_code ?? undefined}
+                  />
                 </div>
               </article>
             ))}

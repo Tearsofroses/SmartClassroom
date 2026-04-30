@@ -40,6 +40,7 @@ class FloorResponse(FloorBase):
 class RoomDeviceSchema(BaseModel):
     device_id: str
     device_type: str
+    device_index: int = 1
     location: str
     status: str = "OFF"
     power_consumption_watts: Optional[int] = None
@@ -141,6 +142,28 @@ class SessionResponse(BaseModel):
         from_attributes = True
 
 
+class BehaviorLogResponse(BaseModel):
+    """Individual behavior log entry"""
+    id: str  # UUID as string
+    session_id: str
+    actor_id: Optional[str]
+    actor_type: str
+    behavior_class: str
+    count: int
+    duration_seconds: int
+    yolo_confidence: float
+    detected_at: datetime
+    frame_snapshot: Optional[str]  # base64 data URI
+
+
+class BehaviorLogListResponse(BaseModel):
+    """Paginated list of behavior logs"""
+    total: int
+    offset: int
+    limit: int
+    logs: List[BehaviorLogResponse]
+
+
 class AttendanceConfigUpsert(BaseModel):
     grace_minutes: int = Field(default=10, ge=0, le=90)
     min_confidence: float = Field(default=0.75, ge=0.0, le=1.0)
@@ -168,9 +191,16 @@ class AttendanceStudentStatus(BaseModel):
     student_id: UUID
     student_code: str
     student_name: str
+    student_class: Optional[str] = None
     status: Literal["PRESENT", "LATE", "ABSENT"]
     first_seen_at: Optional[datetime] = None
     confidence: Optional[float] = None
+    performance_score: Optional[float] = None
+    behavior_summary: Optional[Dict[str, Any]] = None
+    risk_level: Optional[str] = None
+    risk_score: Optional[float] = None
+    triggered_behaviors: Optional[Dict[str, Any]] = None
+    incident_reviewed: Optional[bool] = None
 
 
 class AttendanceSessionReport(BaseModel):

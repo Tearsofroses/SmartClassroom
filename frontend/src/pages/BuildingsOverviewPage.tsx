@@ -6,7 +6,6 @@ import { usePermissions } from '../hooks/usePermissions'
 import { PERMISSIONS } from '../constants/permissions'
 import { useAuthStore } from '../store/auth'
 import type { BuildingOverview, Incident } from '../types'
-import { AdminSidebarNav } from '../components/AdminSidebarNav'
 
 type BuildingGroupKey = 'A' | 'B' | 'C' | 'LABS'
 
@@ -537,17 +536,7 @@ export function BuildingsOverviewPage(): JSX.Element {
   }
 
   return (
-    <main className="page split-layout campus-bg command-center-layout">
-      <aside className="left-sidebar panel command-side-panel">
-        <div className="sidebar-header">
-          <p className="eyebrow">Navigation</p>
-          <h1>Control Panel</h1>
-          <p className="muted">Campus-wide operations. Select a group to continue.</p>
-        </div>
-
-        <AdminSidebarNav active="sessions" />
-      </aside>
-
+    <main className="page campus-bg">
       <section className="right-content command-center-content">
         <header className="hero-header command-hero">
           <p className="eyebrow">Smart Classroom Platform</p>

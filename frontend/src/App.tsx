@@ -1,7 +1,7 @@
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
-import { BrowserRouter as Router, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { Activity } from 'lucide-react'
+import { BrowserRouter as Router, Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { ActivitySquare, ArrowLeft, LogOut, Monitor, School, Settings } from 'lucide-react'
 import './App.css'
 import { BuildingsOverviewPage } from './pages/BuildingsOverviewPage'
 import { BuildingGroupPage } from './pages/BuildingGroupPage'
@@ -13,6 +13,7 @@ import { BuildingDevicesPage } from './pages/BuildingDevicesPage'
 import { AttendanceCommandCenterPage } from './pages/AttendanceCommandCenterPage'
 import { AdminSettingsPage } from './pages/AdminSettingsPage'
 import { SessionDetailPage } from './pages/SessionDetailPage'
+import { SessionCameraCapturePage } from './pages/SessionCameraCapturePage'
 import { StudentDashboardPage } from './pages/StudentDashboardPage'
 import { StudentSessionPage } from './pages/StudentSessionPage'
 import { LoginPage } from './pages/LoginPage'
@@ -86,8 +87,18 @@ function AuthenticatedLayout(): JSX.Element {
   const isLecturerOrProctor = user?.role === 'LECTURER' || user?.role === 'EXAM_PROCTOR'
   const isStudentLanding = user?.role === 'STUDENT' && location.pathname === '/students/me/dashboard'
   const isLecturerOrProctorLanding = isLecturerOrProctor && /^\/buildings\/[^/]+$/.test(location.pathname)
-  const showBack = location.pathname !== '/' && !isStudentLanding && !isLecturerOrProctorLanding
+  const isGlobalPage = ['/devices', '/attendance', '/admin/settings'].includes(location.pathname)
+  const showBack = location.pathname !== '/' && !isStudentLanding && !isLecturerOrProctorLanding && !isGlobalPage
   const isSystemAdmin = user?.role === 'SYSTEM_ADMIN'
+
+  const match = location.pathname.match(/^\/buildings\/([^/]+)/)
+  const buildingIdContext = match ? match[1] : undefined
+
+  const activeSection = location.pathname.includes('/devices') 
+    ? 'devices' 
+    : location.pathname.includes('/attendance') 
+      ? 'attendance' 
+      : 'sessions'
 
   return (
     <>
@@ -97,33 +108,54 @@ function AuthenticatedLayout(): JSX.Element {
             {showBack ? (
               <button
                 type="button"
+                className="header-nav-link back-btn"
                 onClick={() => navigate(-1)}
               >
-                Back
+                <ArrowLeft size={16} />
+                <span>Back</span>
               </button>
             ) : null}
             <p className="auth-user">Signed in as {user?.username ?? 'Unknown'}</p>
           </div>
-          <button
-            type="button"
-            className="auth-brand"
-            onClick={() => navigate('/')}
-            aria-label="Return to command center"
-          >
-            <Activity size={16} />
-            <span>Smart Classroom Command Center</span>
-          </button>
+
+          <nav className="auth-topbar-center" aria-label="Main Navigation">
+            <Link
+              to={buildingIdContext ? `/buildings/${buildingIdContext}/sessions` : '/'}
+              className={`header-nav-link ${activeSection === 'sessions' ? 'is-active' : ''}`}
+            >
+              <School size={16} />
+              <span>Sessions</span>
+            </Link>
+            <Link
+              to={buildingIdContext ? `/buildings/${buildingIdContext}/devices` : '/devices'}
+              className={`header-nav-link ${activeSection === 'devices' ? 'is-active' : ''}`}
+            >
+              <Monitor size={16} />
+              <span>Devices</span>
+            </Link>
+            <Link
+              to="/attendance"
+              className={`header-nav-link ${activeSection === 'attendance' ? 'is-active' : ''}`}
+            >
+              <ActivitySquare size={16} />
+              <span>Attendance</span>
+            </Link>
+          </nav>
+
           <div className="auth-topbar-right">
             {isSystemAdmin ? (
               <button
                 type="button"
+                className="header-nav-link"
                 onClick={() => navigate('/admin/settings')}
               >
-                Admin Settings
+                <Settings size={16} />
+                <span>Admin Settings</span>
               </button>
             ) : null}
-            <button type="button" onClick={handleLogout}>
-              Sign Out
+            <button type="button" className="header-nav-link" onClick={handleLogout}>
+              <LogOut size={16} />
+              <span>Sign Out</span>
             </button>
           </div>
         </div>
@@ -297,6 +329,7 @@ function App() {
             <Route path="/admin/settings" element={<AdminSettingsPage />} />
             <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
             <Route path="/students/me/dashboard" element={<StudentDashboardPage />} />
+              <Route path="/sessions/:sessionId/capture" element={<SessionCameraCapturePage />} />
             <Route path="/students/me/sessions/:sessionId" element={<StudentSessionPage />} />
           </Route>
         </Route>
