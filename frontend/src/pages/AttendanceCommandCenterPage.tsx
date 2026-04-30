@@ -355,9 +355,9 @@ export function AttendanceCommandCenterPage(): JSX.Element {
             <YAxis />
             <Tooltip />
             <Legend />
-            <Bar dataKey="present" stackId="attendance" fill="#74a772" name="Present" />
-            <Bar dataKey="late" stackId="attendance" fill="#f59e0b" name="Late" />
-            <Bar dataKey="absent" stackId="attendance" fill="#dc2626" name="Absent" />
+            <Bar dataKey="present" stackId="attendance" fill="#10b981" name="Present" />
+            <Bar dataKey="late" stackId="attendance" fill="#facc15" name="Late" />
+            <Bar dataKey="absent" stackId="attendance" fill="#ef4444" name="Absent" />
           </BarChart>
         </ResponsiveContainer>
       </section>
@@ -382,7 +382,7 @@ export function AttendanceCommandCenterPage(): JSX.Element {
             <YAxis domain={[0, 100]} />
             <Tooltip />
             <Legend />
-            <Line type="monotone" dataKey="attendance_rate" stroke="#4f8f56" strokeWidth={3} dot={{ r: 4 }} name="Attendance Rate %" />
+            <Line type="monotone" dataKey="attendance_rate" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} name="Attendance Rate %" />
           </LineChart>
         </ResponsiveContainer>
       </section>

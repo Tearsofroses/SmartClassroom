@@ -135,21 +135,22 @@ DECLARE
     v_test_building_id UUID;
 
     v_all_student_codes TEXT[] := ARRAY[
-        '22110001', '22110005', '22110008', '22110012',
-        '22110016', '22110021', '22110025', '22110029',
-        '22110033', '22110037', '22110041', '22110045'
+        '22110001', '22110005', '22110008', '22110012', '22110016', '22110021', '22110025', '22110029',
+        '22110033', '22110037', '22110041', '22110045', '22110046', '22110047', '22110048', '22110049',
+        '22110050', '22110051', '22110052', '22110053', '22110054', '22110055', '22110056', '22110057',
+        '22110058', '22110059', '22110060', '22110061', '22110062', '22110063', '22110064', '22110065'
     ];
     v_ai_student_codes TEXT[] := ARRAY[
-        '22110001', '22110005', '22110008', '22110012',
-        '22110016', '22110021', '22110025', '22110029'
+        '22110001', '22110005', '22110008', '22110012', '22110016', '22110021', '22110025', '22110029',
+        '22110050', '22110051', '22110052', '22110053'
     ];
     v_iot_student_codes TEXT[] := ARRAY[
-        '22110016', '22110021', '22110025', '22110029',
-        '22110033', '22110037', '22110041', '22110045'
+        '22110016', '22110021', '22110025', '22110029', '22110033', '22110037', '22110041', '22110045',
+        '22110054', '22110055', '22110056', '22110057'
     ];
     v_test_student_codes TEXT[] := ARRAY[
-        '22110001', '22110005', '22110008', '22110012',
-        '22110016', '22110021', '22110025', '22110029'
+        '22110001', '22110005', '22110008', '22110012', '22110016', '22110021', '22110025', '22110029',
+        '22110058', '22110059', '22110060', '22110061'
     ];
 
     v_all_student_ids UUID[];
@@ -158,6 +159,20 @@ DECLARE
     v_test_student_ids UUID[];
     v_demo_teacher_ids UUID[];
     v_demo_subject_ids UUID[];
+    v_history_date DATE;
+    v_history_session_id UUID;
+    v_history_subject_id UUID;
+    v_history_teacher_id UUID;
+    v_history_room_id UUID;
+    v_day_offset INT;
+    v_session_offset INT;
+    v_random_student_id UUID;
+    v_present_student_ids UUID[];
+    v_late_student_ids UUID[];
+    v_absent_student_ids UUID[];
+    v_all_possible_subject_ids UUID[];
+    v_all_possible_teacher_ids UUID[];
+    v_all_possible_room_ids UUID[];
 
     v_timetable_ai_theory UUID;
     v_timetable_iot_lab UUID;
@@ -469,7 +484,9 @@ BEGIN
     INSERT INTO teachers (id, name, email, user_id, phone, department, created_at, updated_at)
     VALUES
         (uuid_generate_v4(), 'Le Minh Hoang', 'le.minh.hoang@smartcampus.local', v_lecturer_user_id, '0908000001', 'School of Computer Science and Engineering', NOW(), NOW()),
-        (uuid_generate_v4(), 'Tran Quoc Tuan', 'tran.quoc.tuan@smartcampus.local', v_proctor_user_id, '0908000002', 'Academic Testing Center', NOW(), NOW())
+        (uuid_generate_v4(), 'Tran Quoc Tuan', 'tran.quoc.tuan@smartcampus.local', v_proctor_user_id, '0908000002', 'Academic Testing Center', NOW(), NOW()),
+        (uuid_generate_v4(), 'Nguyen Van An', 'an.nguyen@smartcampus.local', NULL, '0908000003', 'Information Technology', NOW(), NOW()),
+        (uuid_generate_v4(), 'Pham Minh Duc', 'duc.pham@smartcampus.local', NULL, '0908000004', 'Electronics and Telecommunications', NOW(), NOW())
     ON CONFLICT (email) DO UPDATE SET
         name = EXCLUDED.name,
         user_id = EXCLUDED.user_id,
@@ -484,7 +501,12 @@ BEGIN
     VALUES
         (uuid_generate_v4(), 'Computer Vision Applications', 'AI3307', 'Applied computer vision for smart classroom analytics and camera-based understanding.', NOW(), NOW()),
         (uuid_generate_v4(), 'Internet of Things Systems', 'EE2305', 'Sensor integration, MQTT workflows, and classroom automation fundamentals.', NOW(), NOW()),
-        (uuid_generate_v4(), 'Software Testing and Quality Assurance', 'SE3315', 'Quality assurance, exam supervision flow, and evidence-based incident review.', NOW(), NOW())
+        (uuid_generate_v4(), 'Software Testing and Quality Assurance', 'SE3315', 'Quality assurance, exam supervision flow, and evidence-based incident review.', NOW(), NOW()),
+        (uuid_generate_v4(), 'Deep Learning Frameworks', 'AI4401', 'Advanced neural networks and framework-level optimization.', NOW(), NOW()),
+        (uuid_generate_v4(), 'Embedded Linux Systems', 'EE4402', 'Kernel optimization and peripheral drivers for embedded devices.', NOW(), NOW()),
+        (uuid_generate_v4(), 'Cloud Native Architectures', 'SE4403', 'Kubernetes, serverless, and distributed system design.', NOW(), NOW()),
+        (uuid_generate_v4(), 'Cybersecurity Defense', 'IT4404', 'Network security and penetration testing methodologies.', NOW(), NOW()),
+        (uuid_generate_v4(), 'Natural Language Processing', 'AI4405', 'Transformer models and semantic understanding.', NOW(), NOW())
     ON CONFLICT (code) DO UPDATE SET
         name = EXCLUDED.name,
         description = EXCLUDED.description,
@@ -507,7 +529,27 @@ BEGIN
         (uuid_generate_v4(), 'Phan Thu Uyen', '22110033', '22110033@student.smartcampus.local', NULL, 'EE-2022', NOW(), NOW()),
         (uuid_generate_v4(), 'Trinh Gia Han', '22110037', '22110037@student.smartcampus.local', NULL, 'EE-2022', NOW(), NOW()),
         (uuid_generate_v4(), 'Dang Tuan Kiet', '22110041', '22110041@student.smartcampus.local', NULL, 'EE-2022', NOW(), NOW()),
-        (uuid_generate_v4(), 'Hoang Bao Chau', '22110045', '22110045@student.smartcampus.local', NULL, 'EE-2022', NOW(), NOW())
+        (uuid_generate_v4(), 'Hoang Bao Chau', '22110045', '22110045@student.smartcampus.local', NULL, 'EE-2022', NOW(), NOW()),
+        (uuid_generate_v4(), 'Nguyen Van Phuc', '22110046', '22110046@student.smartcampus.local', NULL, 'IT-2023', NOW(), NOW()),
+        (uuid_generate_v4(), 'Le Thi Thu', '22110047', '22110047@student.smartcampus.local', NULL, 'IT-2023', NOW(), NOW()),
+        (uuid_generate_v4(), 'Tran Quang Khai', '22110048', '22110048@student.smartcampus.local', NULL, 'IT-2023', NOW(), NOW()),
+        (uuid_generate_v4(), 'Pham My Linh', '22110049', '22110049@student.smartcampus.local', NULL, 'IT-2023', NOW(), NOW()),
+        (uuid_generate_v4(), 'Bui Minh Quan', '22110050', '22110050@student.smartcampus.local', NULL, 'AI-2023', NOW(), NOW()),
+        (uuid_generate_v4(), 'Hoang Nhat Minh', '22110051', '22110051@student.smartcampus.local', NULL, 'AI-2023', NOW(), NOW()),
+        (uuid_generate_v4(), 'Vu Thanh Tung', '22110052', '22110052@student.smartcampus.local', NULL, 'AI-2023', NOW(), NOW()),
+        (uuid_generate_v4(), 'Nguyen Ngoc Anh', '22110053', '22110053@student.smartcampus.local', NULL, 'AI-2023', NOW(), NOW()),
+        (uuid_generate_v4(), 'Do Tuan Anh', '22110054', '22110054@student.smartcampus.local', NULL, 'EE-2023', NOW(), NOW()),
+        (uuid_generate_v4(), 'Pham Gia Bao', '22110055', '22110055@student.smartcampus.local', NULL, 'EE-2023', NOW(), NOW()),
+        (uuid_generate_v4(), 'Le Anh Tuan', '22110056', '22110056@student.smartcampus.local', NULL, 'EE-2023', NOW(), NOW()),
+        (uuid_generate_v4(), 'Tran Thu Ha', '22110057', '22110057@student.smartcampus.local', NULL, 'EE-2023', NOW(), NOW()),
+        (uuid_generate_v4(), 'Nguyen Hoang Long', '22110058', '22110058@student.smartcampus.local', NULL, 'SE-2023', NOW(), NOW()),
+        (uuid_generate_v4(), 'Phan Thanh Hai', '22110059', '22110059@student.smartcampus.local', NULL, 'SE-2023', NOW(), NOW()),
+        (uuid_generate_v4(), 'Dang Minh Khoi', '22110060', '22110060@student.smartcampus.local', NULL, 'SE-2023', NOW(), NOW()),
+        (uuid_generate_v4(), 'Trinh Thu Huong', '22110061', '22110061@student.smartcampus.local', NULL, 'SE-2023', NOW(), NOW()),
+        (uuid_generate_v4(), 'Bui Xuan Truong', '22110062', '22110062@student.smartcampus.local', NULL, 'IT-2022', NOW(), NOW()),
+        (uuid_generate_v4(), 'Nguyen My Duyen', '22110063', '22110063@student.smartcampus.local', NULL, 'IT-2022', NOW(), NOW()),
+        (uuid_generate_v4(), 'Pham Quoc Cuong', '22110064', '22110064@student.smartcampus.local', NULL, 'IT-2022', NOW(), NOW()),
+        (uuid_generate_v4(), 'Le Minh Duc', '22110065', '22110065@student.smartcampus.local', NULL, 'IT-2022', NOW(), NOW())
     ON CONFLICT (student_id) DO UPDATE SET
         name = EXCLUDED.name,
         email = EXCLUDED.email,
@@ -566,7 +608,7 @@ BEGIN
             ROUND((0.770000 + ranked.rn * 0.003000)::numeric, 6),
             ROUND((0.880000 + ranked.rn * 0.002000)::numeric, 6)
         ),
-        ROUND((0.8600 + ranked.rn * 0.0090)::numeric, 4),
+        ROUND((0.8500 + random() * 0.1400)::numeric, 4),
         TRUE,
         NOW(),
         NOW()
@@ -1406,6 +1448,77 @@ BEGIN
     FROM rooms r
     WHERE r.room_code IN ('A1-102', 'A2-204', 'A2-301', 'B1-205', 'B2-101', 'C1-103', 'LAB1-101')
     ON CONFLICT DO NOTHING;
+
+    -- ------------------------------------------------------------------------
+    -- 7. Generate Historical Data (Past 30 Days)
+    -- ------------------------------------------------------------------------
+    SELECT ARRAY_AGG(id) INTO v_all_possible_subject_ids FROM subjects;
+    SELECT ARRAY_AGG(id) INTO v_all_possible_teacher_ids FROM teachers;
+    SELECT ARRAY_AGG(id) INTO v_all_possible_room_ids FROM rooms WHERE room_code LIKE 'A1-%' OR room_code LIKE 'B1-%' OR room_code LIKE 'LAB%';
+
+    FOR v_day_offset IN 1..30 LOOP
+        v_history_date := CURRENT_DATE - v_day_offset;
+        
+        -- Create 4-6 sessions per day
+        FOR v_session_offset IN 1..((RANDOM() * 2 + 4)::INT) LOOP
+            v_history_session_id := uuid_generate_v4();
+            v_history_subject_id := v_all_possible_subject_ids[1 + floor(random() * array_length(v_all_possible_subject_ids, 1))];
+            v_history_teacher_id := v_all_possible_teacher_ids[1 + floor(random() * array_length(v_all_possible_teacher_ids, 1))];
+            v_history_room_id := v_all_possible_room_ids[1 + floor(random() * array_length(v_all_possible_room_ids, 1))];
+            
+            -- Insert session
+            INSERT INTO class_sessions (
+                id, room_id, teacher_id, subject_id, mode, start_time, end_time, status, created_at, updated_at
+            ) VALUES (
+                v_history_session_id, v_history_room_id, v_history_teacher_id, v_history_subject_id,
+                CASE WHEN RANDOM() > 0.8 THEN 'TESTING' ELSE 'NORMAL' END,
+                v_history_date + (INTERVAL '1 hour' * (8 + v_session_offset * 1.5)),
+                v_history_date + (INTERVAL '1 hour' * (8 + v_session_offset * 1.5 + 1.5)),
+                'COMPLETED',
+                v_history_date, v_history_date
+            );
+
+            v_present_student_ids := '{}';
+            v_late_student_ids := '{}';
+            v_absent_student_ids := '{}';
+            
+            -- Deterministic student set for each subject to make charts cleaner
+            FOR v_idx IN 1..array_length(v_all_student_ids, 1) LOOP
+                v_random_student_id := v_all_student_ids[v_idx];
+                
+                -- Simulate attendance with some randomness but weighted towards presence
+                IF RANDOM() < 0.75 THEN
+                    v_present_student_ids := v_present_student_ids || v_random_student_id;
+                    INSERT INTO attendance_events (id, session_id, student_id, source, face_confidence, is_recognized, occurred_at, created_at)
+                    VALUES (uuid_generate_v4(), v_history_session_id, v_random_student_id, 'DOOR_CAMERA', 0.88 + RANDOM() * 0.11, TRUE, v_history_date + (INTERVAL '1 hour' * (8 + v_session_offset * 1.5)) + (INTERVAL '1 minute' * (RANDOM() * 5)::INT), v_history_date);
+                ELSIF RANDOM() < 0.4 THEN
+                    v_late_student_ids := v_late_student_ids || v_random_student_id;
+                    INSERT INTO attendance_events (id, session_id, student_id, source, face_confidence, is_recognized, occurred_at, created_at)
+                    VALUES (uuid_generate_v4(), v_history_session_id, v_random_student_id, 'DOOR_CAMERA', 0.85 + RANDOM() * 0.12, TRUE, v_history_date + (INTERVAL '1 hour' * (8 + v_session_offset * 1.5)) + (INTERVAL '1 minute' * (10 + RANDOM() * 20)::INT), v_history_date);
+                ELSE
+                    v_absent_student_ids := v_absent_student_ids || v_random_student_id;
+                END IF;
+            END LOOP;
+
+            -- Update session with students_present
+            UPDATE class_sessions SET students_present = to_jsonb(v_present_student_ids || v_late_student_ids) WHERE id = v_history_session_id;
+
+            -- Performance and Risk for some students
+            IF (SELECT mode FROM class_sessions WHERE id = v_history_session_id) = 'NORMAL' THEN
+                INSERT INTO performance_aggregates (id, session_id, actor_id, actor_type, total_score, calculated_at)
+                SELECT uuid_generate_v4(), v_history_session_id, s_id, 'STUDENT', 65 + RANDOM() * 30, v_history_date
+                FROM UNNEST(v_present_student_ids || v_late_student_ids) s_id
+                WHERE RANDOM() > 0.2;
+            ELSE
+                INSERT INTO risk_incidents (id, session_id, student_id, risk_score, risk_level, triggered_behaviors, flagged_at, reviewed, created_at)
+                SELECT uuid_generate_v4(), v_history_session_id, s_id, RANDOM() * 0.9, 
+                       CASE WHEN RANDOM() > 0.7 THEN 'HIGH' ELSE 'MEDIUM' END,
+                       '{"head-turning": 2}'::jsonb, v_history_date + INTERVAL '30 minutes', TRUE, v_history_date
+                FROM UNNEST(v_present_student_ids || v_late_student_ids) s_id
+                WHERE RANDOM() > 0.85;
+            END IF;
+        END LOOP;
+    END LOOP;
 
 END $$;
 
